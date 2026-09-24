@@ -1,0 +1,66 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AKSHRK-Dev <311836316+AKSHRK-Dev@users.noreply.github.com>
+Date: Thu, 24 Sep 2026 23:11:11 +0900
+Subject: [PATCH] Stolia branding and commands
+
+
+diff --git a/src/main/java/com/destroystokyo/paper/PaperVersionFetcher.java b/src/main/java/com/destroystokyo/paper/PaperVersionFetcher.java
+index 30815c8970b1f1c88a3c7bb5fd36efd915f1687d..a69635fb0b35be8b39743198e452819050809fe2 100644
+--- a/src/main/java/com/destroystokyo/paper/PaperVersionFetcher.java
++++ b/src/main/java/com/destroystokyo/paper/PaperVersionFetcher.java
+@@ -40,8 +40,8 @@ public class PaperVersionFetcher implements VersionFetcher {
+     private static final ComponentLogger COMPONENT_LOGGER = ComponentLogger.logger(LogManager.getRootLogger().getName());
+     private static final int DISTANCE_ERROR = -1;
+     private static final int DISTANCE_UNKNOWN = -2;
+-    private static final String DOWNLOAD_PAGE = "https://papermc.io/downloads/folia"; // Folia
+-    private static final String REPOSITORY = "PaperMC/Folia"; // Folia
++    private static final String DOWNLOAD_PAGE = "https://github.com/AKSHRK-Dev/Stolia"; // Folia // Stolia
++    private static final String REPOSITORY = "AKSHRK-Dev/Stolia"; // Folia // Stolia
+     private static final ServerBuildInfo BUILD_INFO = ServerBuildInfo.buildInfo();
+     private static final String USER_AGENT = BUILD_INFO.brandName() + "/" + BUILD_INFO.asString(VERSION_SIMPLE) + " (https://papermc.io)";
+     private static final Gson GSON = new Gson();
+diff --git a/src/main/java/io/papermc/paper/ServerBuildInfoImpl.java b/src/main/java/io/papermc/paper/ServerBuildInfoImpl.java
+index 10a0be7a4db1a51579d113d279af7a9effe7f438..87c26a9d362d39c60da9993a520c8425fc9c52b9 100644
+--- a/src/main/java/io/papermc/paper/ServerBuildInfoImpl.java
++++ b/src/main/java/io/papermc/paper/ServerBuildInfoImpl.java
+@@ -31,6 +31,7 @@ public record ServerBuildInfoImpl(
+     private static final String ATTRIBUTE_GIT_COMMIT = "Git-Commit";
+ 
+     private static final String BRAND_PAPER_NAME = "Paper";
++    private static final Key FOLIA_BRAND_ID = Key.key("papermc", "folia"); // Stolia
+ 
+     private static final String BUILD_DEV = "DEV";
+ 
+@@ -42,9 +43,9 @@ public record ServerBuildInfoImpl(
+         this(
+             getManifestAttribute(manifest, ATTRIBUTE_BRAND_ID)
+                 .map(Key::key)
+-                .orElse(Key.key("papermc", "folia")), // Folia
++                .orElse(Key.key("stolia", "stolia")), // Folia // Stolia
+             getManifestAttribute(manifest, ATTRIBUTE_BRAND_NAME)
+-                .orElse("Folia"), // Folia
++                .orElse("Stolia"), // Folia // Stolia
+             SharedConstants.getCurrentVersion().id(),
+             SharedConstants.getCurrentVersion().name(),
+             getManifestAttribute(manifest, ATTRIBUTE_BUILD_NUMBER)
+@@ -61,7 +62,7 @@ public record ServerBuildInfoImpl(
+ 
+     @Override
+     public boolean isBrandCompatible(final @NotNull Key brandId) {
+-        return brandId.equals(this.brandId);
++        return brandId.equals(this.brandId) || brandId.equals(FOLIA_BRAND_ID); // Stolia - Stolia is Folia compatible
+     }
+ 
+     @Override
+diff --git a/src/main/java/io/papermc/paper/command/PaperCommands.java b/src/main/java/io/papermc/paper/command/PaperCommands.java
+index 6216147f4d4c04ba616375430a91232d5ebe838a..a58fea9fb1e4bf15ce2cfc4e2e60b4744ecf5f17 100644
+--- a/src/main/java/io/papermc/paper/command/PaperCommands.java
++++ b/src/main/java/io/papermc/paper/command/PaperCommands.java
+@@ -25,6 +25,7 @@ public final class PaperCommands {
+         COMMANDS.put("paper", new PaperCommand("paper"));
+         COMMANDS.put("tps", new io.papermc.paper.threadedregions.commands.CommandServerHealth()); // Folia - region threading
+         COMMANDS.put("profiler", new io.papermc.paper.threadedregions.commands.CommandProfiler()); // Folia - region threading - profiler
++        COMMANDS.put("stolia", new dev.stolia.command.StoliaCommand("stolia")); // Stolia - stolia command
+ 
+         COMMANDS.forEach((s, command) -> {
+             server.server.getCommandMap().register(s, "Paper", command);

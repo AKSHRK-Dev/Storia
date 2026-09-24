@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AKSHRK-Dev <311836316+AKSHRK-Dev@users.noreply.github.com>
+Date: Thu, 24 Sep 2026 22:46:21 +0900
+Subject: [PATCH] Stolia RAM world
+
+
+diff --git a/net/minecraft/server/Main.java b/net/minecraft/server/Main.java
+index 693ce1c23c7be6406eda22da57aa4a1b86a08f5f..2efff47722e404de58148a47caec1e693d9d4635 100644
+--- a/net/minecraft/server/Main.java
++++ b/net/minecraft/server/Main.java
+@@ -194,7 +194,7 @@ public class Main {
+             NotificationManager notificationManager = new NotificationManager();
+             ManagementServer jsonRpcServer = JsonRpc.create(settings, notificationManager);
+             String levelName = Optional.ofNullable((String) options.valueOf("world")).orElse(settings.getProperties().levelName); // CraftBukkit
+-            LevelStorageSource levelStorageSource = LevelStorageSource.createDefault(universePath.toPath());
++            LevelStorageSource levelStorageSource = LevelStorageSource.createDefault(dev.stolia.ramworld.RamWorld.init(universePath.toPath(), levelName)); // Stolia - RAM world
+             LevelStorageSource.LevelStorageAccess access = levelStorageSource.validateAndCreateAccess(levelName);
+             Dynamic<?> levelDataTag;
+             if (access.hasWorldData()) {
+diff --git a/net/minecraft/server/MinecraftServer.java b/net/minecraft/server/MinecraftServer.java
+index be15a671e0b39b455cd5983f4b90f8f3022a2ebc..dc7dd4bf85c8744e660c4682be3646ddd3b05711 100644
+--- a/net/minecraft/server/MinecraftServer.java
++++ b/net/minecraft/server/MinecraftServer.java
+@@ -1150,6 +1150,11 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+         } catch (IOException e) {
+             LOGGER.error("Failed to unlock level {}", this.storageSource.getLevelId(), e);
+         }
++        // Stolia start - RAM world
++        if (dev.stolia.ramworld.RamWorld.get() != null) {
++            dev.stolia.ramworld.RamWorld.get().shutdown();
++        }
++        // Stolia end - RAM world
+         // Spigot start
+         io.papermc.paper.util.MCUtil.ASYNC_EXECUTOR.shutdown(); // Paper
+         try {

@@ -4,35 +4,35 @@ on:
   push:
     branches: [ "**" ]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
     # Only run on PRs if the source branch is on someone else's repo
     if: ${{ github.event_name != 'pull_request' || github.repository != github.event.pull_request.head.repo.full_name }}
-    runs-on: namespace-profile-paper
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Git Repository
-        uses: namespacelabs/nscloud-checkout-action@v9
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Set up JDK
         uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
           java-version: '25'
-          cache: "" # namespace handles this
-      - name: Set up cache
-        uses: namespacelabs/nscloud-cache-action@v1
-        with:
-          cache: gradle
-      - name: Setup gradle build cache
-        run: |
-          nsc cache gradle setup --init-gradle /tmp/init.gradle
       - name: Setup gradle
         uses: gradle/actions/setup-gradle@v6
-        with:
-          cache-disabled: true # namespace handles this
       - name: Configure Git User Details
         run: git config --global user.email "actions@github.com" && git config --global user.name "Github Actions"
       - name: Apply Patches
-        run: ./gradlew --init-script=/tmp/init.gradle applyAllPatches --stacktrace
-      - name: Build
-        run: ./gradlew --init-script=/tmp/init.gradle build
+        run: ./gradlew applyAllPatches --stacktrace
+      - name: Build Paperclip jar
+        run: ./gradlew createPaperclipJar --stacktrace
+      - name: Rename jar
+        run: cp folia-server/build/libs/folia-paperclip-*.jar stolia-${{ github.sha }}.jar
+      - name: Upload jar
+        uses: actions/upload-artifact@v5
+        with:
+          name: stolia-jar
+          path: stolia-*.jar
