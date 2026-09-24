@@ -264,13 +264,18 @@ public final class RamWorld {
             "ram-world: keeps worlds in RAM and writes them to disk in the background.",
             "  WARNING: if the machine loses power or crashes, changes since the last sync are lost.",
             "  If only the server process dies, the RAM copy survives and is recovered on next start.",
-            "  Needs free RAM at least as large as the world folder (check `df -h /dev/shm`)."
+            "  Needs free RAM at least as large as the world folder (check `df -h /dev/shm`).",
+            "",
+            "pregen: /stolia pregen. worker-threads -1 = CPU cores - 1 while pregenerating",
+            "  (restored afterwards); max-in-flight -1 = worker-threads * 16."
         ));
         config.addDefault("ram-world.enabled", true);
         config.addDefault("ram-world.ram-directory", "/dev/shm/stolia");
         config.addDefault("ram-world.sync-interval-seconds", 300);
         config.addDefault("ram-world.min-free-mb", 512);
         config.addDefault("ram-world.delete-on-shutdown", true);
+        config.addDefault("pregen.worker-threads", -1);
+        config.addDefault("pregen.max-in-flight", -1);
         config.options().copyDefaults(true);
         try {
             config.save(file);

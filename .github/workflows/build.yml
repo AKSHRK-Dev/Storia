@@ -3,7 +3,9 @@ name: Patch and Build
 on:
   push:
     branches: [ "**" ]
+    paths-ignore: [ "**.md" ]
   pull_request:
+    paths-ignore: [ "**.md" ]
   workflow_dispatch:
 
 jobs:

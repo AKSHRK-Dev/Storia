@@ -18,6 +18,13 @@
   - `stop` writes everything to disk
   - If the process is killed, the RAM copy survives as long as the machine stays up; it is detected and recovered to disk on the next start
   - If there is not enough RAM, the server falls back to loading from disk as usual
+- **Fast chunk pregeneration (Stolia)**
+  `/stolia pregen` generates chunks ahead of time so players never wait for terrain.
+  While it runs, the chunk worker pool is raised to all cores but one (Folia's default is only
+  about a quarter of the cores), then restored. Progress survives restarts.
+- **Faster world generation (Stolia)**
+  Noise sampling and block counting are optimized. Terrain is **identical to vanilla** for the same seed
+  (the noise changes are verified bit-for-bit against the original code).
 
 ## Usage
 
@@ -40,6 +47,9 @@ ram-world:
   sync-interval-seconds: 300   # shorter is safer, longer is more efficient
   min-free-mb: 512             # load from disk if RAM would drop below this
   delete-on-shutdown: true     # delete the RAM copy after a clean shutdown
+pregen:
+  worker-threads: -1           # -1 = CPU cores - 1 while pregenerating
+  max-in-flight: -1            # -1 = worker-threads * 16 chunks queued at once
 ```
 
 > [!WARNING]
@@ -52,6 +62,20 @@ ram-world:
 | --- | --- | --- |
 | `/stolia status` | Show the RAM world status (paths, usage, last sync) | `stolia.command.stolia` (op) |
 | `/stolia sync` | Write the RAM world to disk now | `stolia.command.stolia` (op) |
+| `/stolia pregen start <radius> [world] [x z]` | Pregenerate a square of `radius` blocks around spawn (or x z) | `stolia.command.stolia` (op) |
+| `/stolia pregen stop` / `resume` / `status` | Stop (progress is saved), resume after a restart, show progress | `stolia.command.stolia` (op) |
+
+### Chunk generation speed
+
+Pregenerating 3,721 chunks (radius 480 blocks) on a 6-core machine:
+
+| | Time | Chunks/s |
+| --- | --- | --- |
+| Folia default (1 worker thread on 6 cores) | 3m 21s | 18.5 |
+| Stolia `/stolia pregen` (5 worker threads) | 40s | 94 |
+
+For normal play (players exploring new terrain), you can raise `chunk-system.worker-threads`
+in `config/paper-global.yml` if your CPU has headroom.
 
 ## Plugin compatibility
 
