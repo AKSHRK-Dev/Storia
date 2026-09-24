@@ -1,66 +1,67 @@
 <div align=center>
     <img src="./stolia.png" alt="Stolia logo" width="128">
     <h1>Stolia</h1>
-    <p><a href="https://github.com/PaperMC/Folia">Folia</a> をベースにした、大人数向けの高効率 Minecraft サーバーソフトウェア</p>
+    <p>A high-efficiency Minecraft server for large player counts, based on <a href="https://github.com/PaperMC/Folia">Folia</a></p>
+    <p><b>English</b> | <a href="./README.ja.md">日本語</a></p>
 </div>
 
-## 特徴
+## Features
 
-- **リージョン単位のマルチスレッド（Folia 由来）**
-  近くにあるチャンクを「リージョン」にまとめ、リージョンごとに並列で tick します。
-  プレイヤーが広く散らばる大人数サーバー（SMP・スカイブロックなど）でよく伸びます。
-- **RAM ワールド（Stolia 独自）**
-  起動時にワールドを RAM（`/dev/shm`）へ読み込み、サーバーは RAM 上のワールドを読み書きします。
-  ディスク I/O がボトルネックにならなくなります。
-  - 一定間隔で、変わったファイルだけをバックグラウンドでディスクへ書き戻します
-  - 一時ファイルに書いてから置き換えるので、ディスク上のワールドが書きかけの状態で残りません
-  - `stop` のときは全部ディスクへ書き戻します
-  - プロセスが強制終了しても、マシンが動いていれば RAM 上のデータは残ります。次の起動時にそれを検知してディスクへ復旧します
-  - RAM が足りないときは、自動で通常どおりディスクから起動します
+- **Regionised multithreading (from Folia)**
+  Nearby chunks are grouped into independent "regions" that tick in parallel.
+  This scales well on large servers where players spread out (SMP, skyblock, etc.).
+- **RAM world (Stolia)**
+  On startup the world is loaded into RAM (`/dev/shm`) and the server reads and writes it there,
+  so disk I/O stops being a bottleneck.
+  - Only changed files are written back to disk in the background, at a fixed interval
+  - Files are written to a temp file and then atomically renamed, so the on-disk world is never half-written
+  - `stop` writes everything to disk
+  - If the process is killed, the RAM copy survives as long as the machine stays up; it is detected and recovered to disk on the next start
+  - If there is not enough RAM, the server falls back to loading from disk as usual
 
-## 使い方
+## Usage
 
-Java 25 以上が必要です。
+Requires Java 25 or newer.
 
 ```sh
 java -Xmx8G -jar stolia-26.2.jar nogui
 ```
 
-最新のビルドは [Actions](../../actions) の成果物（`stolia-jar`）からダウンロードできます。
+The latest build can be downloaded from the `stolia-jar` artifact in [Actions](../../actions).
 
-### 設定（`stolia.yml`）
+### Configuration (`stolia.yml`)
 
-初回起動時にサーバーのフォルダに作られます。
+Created in the server folder on first start.
 
 ```yaml
 ram-world:
   enabled: true
   ram-directory: /dev/shm/stolia
-  sync-interval-seconds: 300   # 短くするほど安全、長くするほど効率的
-  min-free-mb: 512             # RAM の空きがこれを下回りそうならディスクで起動
-  delete-on-shutdown: true     # 正常終了時に RAM 上のコピーを削除する
+  sync-interval-seconds: 300   # shorter is safer, longer is more efficient
+  min-free-mb: 512             # load from disk if RAM would drop below this
+  delete-on-shutdown: true     # delete the RAM copy after a clean shutdown
 ```
 
 > [!WARNING]
-> **停電や OS のクラッシュが起きると、最後の同期から後の変更は失われます。**
-> ワールドのサイズと同じ量の空き RAM が、JVM のヒープとは**別に**必要です（`df -h /dev/shm` で確認できます）。
+> **If the machine loses power or the OS crashes, changes made since the last sync are lost.**
+> You need free RAM as large as the world folder, **in addition to** the JVM heap (check with `df -h /dev/shm`).
 
-### コマンド
+### Commands
 
-| コマンド | 説明 | 権限 |
+| Command | Description | Permission |
 | --- | --- | --- |
-| `/stolia status` | RAM ワールドの状態（場所・使用量・最後に同期した時刻）を表示 | `stolia.command.stolia`（OP） |
-| `/stolia sync` | 今すぐ RAM ワールドをディスクへ書き戻す | `stolia.command.stolia`（OP） |
+| `/stolia status` | Show the RAM world status (paths, usage, last sync) | `stolia.command.stolia` (op) |
+| `/stolia sync` | Write the RAM world to disk now | `stolia.command.stolia` (op) |
 
-## プラグインの互換性
+## Plugin compatibility
 
-Stolia は Folia と同じスレッドモデルなので、**Folia 対応のプラグインだけが動きます**
-（`plugin.yml` に `folia-supported: true` があるもの）。
-`ServerBuildInfo#isBrandCompatible(papermc:folia)` も `true` を返すので、Folia かどうかを確認するプラグインでも動きます。
+Stolia uses the same threading model as Folia, so **only Folia-compatible plugins work**
+(those with `folia-supported: true` in `plugin.yml`).
+`ServerBuildInfo#isBrandCompatible(papermc:folia)` also returns `true`, so plugins that check for Folia work too.
 
-スレッドモデルやおすすめの設定については、[Folia の README](./FOLIA_README.md) を参照してください。
+For details on the threading model and recommended settings, see the [Folia README](./FOLIA_README.md).
 
-## ビルド方法
+## Building
 
 ```sh
 ./gradlew applyAllPatches
@@ -68,13 +69,13 @@ Stolia は Folia と同じスレッドモデルなので、**Folia 対応のプ�
 # → folia-server/build/libs/folia-paperclip-*.jar
 ```
 
-### 変更の追加
+### Making changes
 
-- Stolia 独自のクラス: `folia-server/src/main/java/dev/stolia/`
-- Minecraft 側の変更: `folia-server/src/minecraft/java` でコミット → `./gradlew rebuildMinecraftFeaturePatches`
-- Paper 側の変更: `paper-server` でコミット → `./gradlew rebuildPaperServerFeaturePatches`
+- Stolia's own classes: `folia-server/src/main/java/dev/stolia/`
+- Minecraft changes: commit in `folia-server/src/minecraft/java` → `./gradlew rebuildMinecraftFeaturePatches`
+- Paper changes: commit in `paper-server` → `./gradlew rebuildPaperServerFeaturePatches`
 
-## ライセンス
+## License
 
-パッチは [PATCHES-LICENSE](./PATCHES-LICENSE) に従います。
-Stolia は [PaperMC/Folia](https://github.com/PaperMC/Folia)（および [Paper](https://github.com/PaperMC/Paper)）の派生プロジェクトです。上流の開発者に感謝します。
+Patches are licensed under [PATCHES-LICENSE](./PATCHES-LICENSE).
+Stolia is a derivative of [PaperMC/Folia](https://github.com/PaperMC/Folia) (and [Paper](https://github.com/PaperMC/Paper)). Thanks to the upstream developers.
