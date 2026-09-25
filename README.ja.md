@@ -22,6 +22,12 @@
   `/stolia pregen` で、プレイヤーが行く前にチャンクを生成しておけます。
   生成中だけワーカースレッドを「コア数−1」本に増やし（Folia のデフォルトはコア数の約1/4）、終わったら元に戻します。
   進み具合は保存されるので、再起動しても続きから再開できます。
+- **1人ごとの予算（Stolia 独自）**
+  tick スレッドを、プレイヤーごとに公平に割り当てます。リージョン自身の tick 時間が長すぎるとき、
+  または tick スレッドが混み合っていて、そのリージョンがいる人数分の取り分を超えて使っているときは、
+  **そのリージョンにいる人だけ**、シミュレーション距離（その次に描画距離）を下げます。軽くなったら元に戻します。
+  ほかの人のラグに巻き込まれて制限されることはなく、サーバーに余裕があるときは何も制限しません。
+  GC 後のヒープがいっぱいに近づいたときは、全員の描画距離を下げます。
 - **ワールド生成の高速化（Stolia 独自）**
   ノイズ計算とブロック数の数え方を最適化しています。同じシードなら**地形はバニラと完全に同じ**です
   （ノイズの変更は、元のコードと出力がビット単位で一致することを確認済み）。
@@ -50,6 +56,16 @@ ram-world:
 pregen:
   worker-threads: -1           # -1 = 事前生成中は「コア数−1」本
   max-in-flight: -1            # -1 = worker-threads × 16 チャンクを同時に処理
+player-budget:
+  enabled: true
+  check-interval-ticks: 100    # 各プレイヤーをチェックする間隔
+  max-region-mspt: 45.0        # tick がこれより遅いリージョンは予算オーバー
+  pool-saturated-percent: 85   # tick スレッドがこれ以上忙しいときは、取り分を守らせる
+  recover-below-percent: 70    # 上限の 70% を下回ったら元に戻す
+  min-simulation-distance: 4
+  min-view-distance: 6
+  memory-high-percent: 85      # GC 後のヒープがこれを超えたら全員の描画距離を下げる
+  memory-low-percent: 70
 ```
 
 > [!WARNING]
@@ -63,6 +79,8 @@ pregen:
 | `/stolia status` | RAM ワールドの状態（場所・使用量・最後に同期した時刻）を表示 | `stolia.command.stolia`（OP） |
 | `/stolia sync` | 今すぐ RAM ワールドをディスクへ書き戻す | `stolia.command.stolia`（OP） |
 | `/stolia pregen start <半径> [ワールド] [x z]` | スポーン（または x z）を中心に、半径（ブロック）の正方形を事前生成 | `stolia.command.stolia`（OP） |
+| `/stolia budget` | tick スレッドの使用率・ヒープ・各プレイヤーのリージョンの負荷と今の距離 | `stolia.command.stolia`（OP） |
+| `/stolia region` | 重いリージョン一覧（スレッド使用率・MSPT・TPS・人数・チャンク数） | `stolia.command.stolia`（OP） |
 | `/stolia pregen stop` / `resume` / `status` | 停止（進み具合は保存）／再起動後に再開／進み具合を表示 | `stolia.command.stolia`（OP） |
 
 ### チャンク生成の速さ

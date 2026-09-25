@@ -22,6 +22,13 @@
   `/stolia pregen` generates chunks ahead of time so players never wait for terrain.
   While it runs, the chunk worker pool is raised to all cores but one (Folia's default is only
   about a quarter of the cores), then restored. Progress survives restarts.
+- **Per-player budget (Stolia)**
+  Every player gets a fair share of the region tick threads. If a region's own tick time is too high,
+  or the tick threads are saturated and a region uses more than its players' share, only the players
+  in that region get a lower simulation distance (then view distance); it is restored once the region
+  recovers. Players in other regions are never limited because of someone else's lag, and nothing is
+  limited while the server has headroom. When the heap is nearly full after GC, view distance is
+  lowered for everyone.
 - **Faster world generation (Stolia)**
   Noise sampling and block counting are optimized. Terrain is **identical to vanilla** for the same seed
   (the noise changes are verified bit-for-bit against the original code).
@@ -50,6 +57,16 @@ ram-world:
 pregen:
   worker-threads: -1           # -1 = CPU cores - 1 while pregenerating
   max-in-flight: -1            # -1 = worker-threads * 16 chunks queued at once
+player-budget:
+  enabled: true
+  check-interval-ticks: 100    # how often each player is checked
+  max-region-mspt: 45.0        # a region ticking slower than this is over budget
+  pool-saturated-percent: 85   # tick threads this busy = saturated, so enforce fair shares
+  recover-below-percent: 70    # restore once the region is below 70% of its limits
+  min-simulation-distance: 4
+  min-view-distance: 6
+  memory-high-percent: 85      # heap after GC above this lowers everyone's view distance
+  memory-low-percent: 70
 ```
 
 > [!WARNING]
@@ -63,6 +80,8 @@ pregen:
 | `/stolia status` | Show the RAM world status (paths, usage, last sync) | `stolia.command.stolia` (op) |
 | `/stolia sync` | Write the RAM world to disk now | `stolia.command.stolia` (op) |
 | `/stolia pregen start <radius> [world] [x z]` | Pregenerate a square of `radius` blocks around spawn (or x z) | `stolia.command.stolia` (op) |
+| `/stolia budget` | Tick thread usage, heap, and each player's region load and current distances | `stolia.command.stolia` (op) |
+| `/stolia region` | Busiest regions: thread usage, MSPT, TPS, players, chunks | `stolia.command.stolia` (op) |
 | `/stolia pregen stop` / `resume` / `status` | Stop (progress is saved), resume after a restart, show progress | `stolia.command.stolia` (op) |
 
 ### Chunk generation speed

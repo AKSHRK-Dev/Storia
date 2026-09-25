@@ -1,5 +1,6 @@
 package dev.stolia.command;
 
+import dev.stolia.budget.PlayerBudget;
 import dev.stolia.pregen.Pregenerator;
 import dev.stolia.ramworld.RamWorld;
 import io.papermc.paper.ServerBuildInfo;
@@ -21,13 +22,13 @@ import static net.kyori.adventure.text.Component.text;
 
 public final class StoliaCommand extends Command {
 
-    private static final List<String> SUBCOMMANDS = List.of("sync", "status", "pregen");
+    private static final List<String> SUBCOMMANDS = List.of("sync", "status", "pregen", "budget", "region");
     private static final List<String> PREGEN_SUBCOMMANDS = List.of("start", "stop", "status", "resume");
 
     public StoliaCommand(final String name) {
         super(name);
         this.description = "Stolia commands";
-        this.usageMessage = "/stolia [sync | status | pregen]";
+        this.usageMessage = "/stolia [sync | status | pregen | budget | region]";
         this.setPermission("stolia.command.stolia");
     }
 
@@ -41,6 +42,8 @@ public final class StoliaCommand extends Command {
             case "sync" -> this.sync(sender);
             case "status" -> this.status(sender);
             case "pregen" -> this.pregen(sender, args);
+            case "budget" -> this.budget(sender);
+            case "region" -> this.regions(sender);
             default -> sender.sendMessage(text("Usage: " + this.usageMessage, NamedTextColor.RED));
         }
         return true;
@@ -171,6 +174,64 @@ public final class StoliaCommand extends Command {
         final long side = 2L * radius + 1;
         sender.sendMessage(text("Pregenerating " + (side * side) + " chunks in " + world.getName() + " with "
             + pregen.workerThreads() + " worker threads. Progress is logged to the console.", NamedTextColor.GREEN));
+    }
+
+    private void budget(final CommandSender sender) {
+        final PlayerBudget budget = PlayerBudget.get();
+        if (budget == null) {
+            sender.sendMessage(text("Player budget is disabled (player-budget.enabled in stolia.yml).", NamedTextColor.YELLOW));
+            return;
+        }
+        sender.sendMessage(text("Player budget (checked every " + budget.intervalSeconds() + "s)", NamedTextColor.AQUA));
+        sender.sendMessage(line("Tick threads busy", text(Math.round(budget.poolUtilisation() * 100) + "%"
+            + (budget.poolSaturated() ? " (saturated: heavy regions are limited)" : " (headroom: nothing limited for CPU)"),
+            budget.poolSaturated() ? NamedTextColor.RED : NamedTextColor.GREEN)));
+        sender.sendMessage(line("Share per player", text(String.format(Locale.ROOT, "%.0f%% of a thread", budget.sharePerPlayer() * 100), NamedTextColor.WHITE)));
+        sender.sendMessage(line("Heap after GC", text(Math.round(budget.heapFraction() * 100) + "%"
+            + (budget.memoryLevel() > 0 ? " (view distance -" + budget.memoryLevel() + " for everyone)" : ""),
+            budget.memoryLevel() > 0 ? NamedTextColor.RED : NamedTextColor.GREEN)));
+        for (final org.bukkit.entity.Player player : Bukkit.getOnlinePlayers()) {
+            final PlayerBudget.PlayerState state = budget.state(player.getUniqueId());
+            if (state == null) {
+                sender.sendMessage(text(" " + player.getName() + ": not checked yet", NamedTextColor.GRAY));
+                continue;
+            }
+            final String sim = state.appliedSimulation() < 0 ? "default" : String.valueOf(state.appliedSimulation());
+            final String view = state.appliedView() < 0 ? "default" : String.valueOf(state.appliedView());
+            sender.sendMessage(text(" " + player.getName() + ": ", NamedTextColor.WHITE)
+                .append(text(String.format(Locale.ROOT, "region %.1f MSPT, %.1f TPS, %.0f%% thread, %d player(s)",
+                    state.regionMspt(), state.regionTps(), state.regionUtilisation() * 100, state.regionPlayers()), NamedTextColor.GRAY))
+                .append(text(" | sim " + sim + ", view " + view, state.cpuLevel() > 0 ? NamedTextColor.YELLOW : NamedTextColor.GREEN)));
+        }
+    }
+
+    private void regions(final CommandSender sender) {
+        final List<io.papermc.paper.threadedregions.ThreadedRegionizer.ThreadedRegion<io.papermc.paper.threadedregions.TickRegions.TickRegionData, io.papermc.paper.threadedregions.TickRegions.TickRegionSectionData>> regions = new java.util.ArrayList<>();
+        for (final World world : Bukkit.getWorlds()) {
+            ((CraftWorld) world).getHandle().regioniser.computeForAllRegions(regions::add);
+        }
+        final long now = System.nanoTime();
+        record Row(String where, double util, double mspt, double tps, int players, int chunks) {}
+        final List<Row> rows = new java.util.ArrayList<>();
+        for (final var region : regions) {
+            final ca.spottedleaf.common.time.TickData.TickReportData report = region.getData().getRegionSchedulingHandle().getTickReport5s(now);
+            final net.minecraft.world.level.ChunkPos center = region.getCenterChunk();
+            if (report == null || center == null) {
+                continue;
+            }
+            final var stats = region.getData().getRegionStats();
+            rows.add(new Row(region.regioniser.world.getWorld().getName() + " " + ((center.x() << 4) | 7) + ", " + ((center.z() << 4) | 7),
+                report.utilisation(), report.timePerTickData().segmentAll().average() / 1.0E6, report.tpsData().segmentAll().average(),
+                stats.getPlayerCount(), stats.getChunkCount()));
+        }
+        rows.sort((a, b) -> Double.compare(b.util(), a.util()));
+        sender.sendMessage(text(rows.size() + " region(s), busiest first (last 5s):", NamedTextColor.AQUA));
+        for (final Row row : rows.subList(0, Math.min(10, rows.size()))) {
+            sender.sendMessage(text(" " + row.where() + ": ", NamedTextColor.WHITE)
+                .append(text(String.format(Locale.ROOT, "%.0f%% thread, %.1f MSPT, %.1f TPS, %d player(s), %d chunks",
+                    row.util() * 100, row.mspt(), row.tps(), row.players(), row.chunks()),
+                    row.tps() < 19.5 ? NamedTextColor.RED : NamedTextColor.GRAY)));
+        }
     }
 
     private static Component line(final String label, final Component value) {

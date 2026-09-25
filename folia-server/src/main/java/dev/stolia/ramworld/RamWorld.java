@@ -267,7 +267,14 @@ public final class RamWorld {
             "  Needs free RAM at least as large as the world folder (check `df -h /dev/shm`).",
             "",
             "pregen: /stolia pregen. worker-threads -1 = CPU cores - 1 while pregenerating",
-            "  (restored afterwards); max-in-flight -1 = worker-threads * 16."
+            "  (restored afterwards); max-in-flight -1 = worker-threads * 16.",
+            "",
+            "player-budget: gives each player a fair share of the tick threads. When a region's own tick",
+            "  time passes max-region-mspt, or the tick threads are saturated and a region uses more than its",
+            "  players' share, those players' simulation distance (then view distance) is lowered one",
+            "  step per check, and raised back once the region recovers. When the heap after GC passes",
+            "  memory-high-percent, everyone's view distance is lowered. Nothing is limited while the",
+            "  server has headroom."
         ));
         config.addDefault("ram-world.enabled", true);
         config.addDefault("ram-world.ram-directory", "/dev/shm/stolia");
@@ -276,6 +283,15 @@ public final class RamWorld {
         config.addDefault("ram-world.delete-on-shutdown", true);
         config.addDefault("pregen.worker-threads", -1);
         config.addDefault("pregen.max-in-flight", -1);
+        config.addDefault("player-budget.enabled", true);
+        config.addDefault("player-budget.check-interval-ticks", 100);
+        config.addDefault("player-budget.max-region-mspt", 45.0);
+        config.addDefault("player-budget.pool-saturated-percent", 85);
+        config.addDefault("player-budget.recover-below-percent", 70);
+        config.addDefault("player-budget.min-simulation-distance", 4);
+        config.addDefault("player-budget.min-view-distance", 6);
+        config.addDefault("player-budget.memory-high-percent", 85);
+        config.addDefault("player-budget.memory-low-percent", 70);
         config.options().copyDefaults(true);
         try {
             config.save(file);
