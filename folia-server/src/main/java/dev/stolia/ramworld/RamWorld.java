@@ -271,8 +271,10 @@ public final class RamWorld {
             "",
             "player-budget: gives each player a fair share of the tick threads. When a region's own tick",
             "  time passes max-region-mspt, or the tick threads are saturated and a region uses more than its",
-            "  players' share, those players' simulation distance (then view distance) is lowered one",
-            "  step per check, and raised back once the region recovers. When the heap after GC passes",
+            "  players' share, those players' view distance is lowered one step per check (never below",
+            "  the simulation distance, so redstone and farms keep running) and raised back once the region",
+            "  recovers. lower-simulation-distance: true also lowers simulation distance first (more CPU",
+            "  saved, but machines far from the player stop). When the heap after GC passes",
             "  memory-high-percent, everyone's view distance is lowered. Nothing is limited while the",
             "  server has headroom."
         ));
@@ -288,6 +290,7 @@ public final class RamWorld {
         config.addDefault("player-budget.max-region-mspt", 45.0);
         config.addDefault("player-budget.pool-saturated-percent", 85);
         config.addDefault("player-budget.recover-below-percent", 70);
+        config.addDefault("player-budget.lower-simulation-distance", false);
         config.addDefault("player-budget.min-simulation-distance", 4);
         config.addDefault("player-budget.min-view-distance", 6);
         config.addDefault("player-budget.memory-high-percent", 85);

@@ -27,8 +27,10 @@ import org.bukkit.entity.Player;
 import org.slf4j.Logger;
 
 /**
- * Gives every player a fair share of the server and shrinks the simulation/view distance of
- * players whose region uses more than that, so one heavy base cannot slow everyone else down.
+ * Gives every player a fair share of the server and shrinks the view distance (and, only if
+ * {@code lower-simulation-distance} is enabled, the simulation distance) of players whose region uses
+ * more than that, so one heavy base cannot slow everyone else down. By default ticking is never
+ * reduced, so redstone and farms keep running.
  *
  * <p>Region tick threads are a shared pool: when there are more busy regions than threads, a region
  * that ticks slowly delays the others. Each player's share of the pool is
@@ -54,6 +56,7 @@ public final class PlayerBudget {
     private final double recoverFraction;
     private final double saturatedUtilisation;
     private final int minSimulationDistance;
+    private final boolean lowerSimulationDistance;
     private final int minViewDistance;
     private final double memoryHigh;
     private final double memoryLow;
@@ -92,6 +95,7 @@ public final class PlayerBudget {
         this.recoverFraction = config.getDouble("player-budget.recover-below-percent", 70) / 100.0;
         this.saturatedUtilisation = config.getDouble("player-budget.pool-saturated-percent", 85) / 100.0;
         this.minSimulationDistance = Math.max(2, config.getInt("player-budget.min-simulation-distance", 4));
+        this.lowerSimulationDistance = config.getBoolean("player-budget.lower-simulation-distance", false);
         this.minViewDistance = Math.max(2, config.getInt("player-budget.min-view-distance", 6));
         this.memoryHigh = config.getDouble("player-budget.memory-high-percent", 85) / 100.0;
         this.memoryLow = config.getDouble("player-budget.memory-low-percent", 70) / 100.0;
@@ -223,7 +227,11 @@ public final class PlayerBudget {
         final ServerLevel level = (ServerLevel) player.level();
         final int worldSimulation = level.getWorld().getSimulationDistance();
         final int worldView = level.getWorld().getViewDistance();
-        final int maxCpuLevel = Math.max(0, worldSimulation - this.minSimulationDistance) + Math.max(0, worldView - this.minViewDistance);
+        // By default simulation distance is never lowered, so redstone and farms near players keep running;
+        // view distance then never goes below the simulation distance either (it would clamp ticking).
+        final int simulationFloor = this.lowerSimulationDistance ? Math.min(this.minSimulationDistance, worldSimulation) : worldSimulation;
+        final int viewFloor = Math.min(worldView, this.lowerSimulationDistance ? this.minViewDistance : Math.max(this.minViewDistance, worldSimulation));
+        final int maxCpuLevel = (worldSimulation - simulationFloor) + Math.max(0, worldView - viewFloor);
 
         if (state.overBudget) {
             state.cpuLevel = Math.min(maxCpuLevel, state.cpuLevel + 1);
@@ -234,10 +242,10 @@ public final class PlayerBudget {
         }
 
         // CPU steps lower simulation distance first (entity/redstone/farm ticking), then view distance.
-        final int simulationSteps = Math.min(state.cpuLevel, Math.max(0, worldSimulation - this.minSimulationDistance));
+        final int simulationSteps = Math.min(state.cpuLevel, worldSimulation - simulationFloor);
         final int viewSteps = state.cpuLevel - simulationSteps + this.memoryLevel;
-        final int view = Math.max(Math.min(this.minViewDistance, worldView), worldView - viewSteps);
-        final int simulation = Math.min(view, Math.max(Math.min(this.minSimulationDistance, worldSimulation), worldSimulation - simulationSteps));
+        final int view = Math.max(viewFloor, worldView - viewSteps);
+        final int simulation = Math.min(view, Math.max(simulationFloor, worldSimulation - simulationSteps));
 
         final int newView = view == worldView ? -1 : view;
         final int newSimulation = simulation == worldSimulation ? -1 : simulation;

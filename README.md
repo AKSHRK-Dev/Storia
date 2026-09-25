@@ -25,10 +25,16 @@
 - **Per-player budget (Stolia)**
   Every player gets a fair share of the region tick threads. If a region's own tick time is too high,
   or the tick threads are saturated and a region uses more than its players' share, only the players
-  in that region get a lower simulation distance (then view distance); it is restored once the region
-  recovers. Players in other regions are never limited because of someone else's lag, and nothing is
-  limited while the server has headroom. When the heap is nearly full after GC, view distance is
-  lowered for everyone.
+  in that region get a lower view distance; it is restored once the region recovers. Players in other
+  regions are never limited because of someone else's lag, and nothing is limited while the server has
+  headroom. When the heap is nearly full after GC, view distance is lowered for everyone.
+  **Simulation distance is not touched by default, so redstone and farms keep running**; view distance
+  is only lowered down to the simulation distance, so set `view-distance` above `simulation-distance`
+  to give it room (e.g. 12 / 8). `lower-simulation-distance: true` also lowers simulation distance.
+- **Faster entity physics (Stolia)**
+  Entity pushing (the cost of mobs crammed together) is about 3x faster with identical results:
+  the same entities are pushed in the same order, and cramming damage and its random roll are unchanged.
+  Redstone is not modified.
 - **Faster world generation (Stolia)**
   Noise sampling and block counting are optimized. Terrain is **identical to vanilla** for the same seed
   (the noise changes are verified bit-for-bit against the original code).
@@ -60,6 +66,7 @@ pregen:
 player-budget:
   enabled: true
   check-interval-ticks: 100    # how often each player is checked
+  lower-simulation-distance: false  # true = also lower simulation distance (machines far away stop)
   max-region-mspt: 45.0        # a region ticking slower than this is over budget
   pool-saturated-percent: 85   # tick threads this busy = saturated, so enforce fair shares
   recover-below-percent: 70    # restore once the region is below 70% of its limits
@@ -92,6 +99,18 @@ Pregenerating 3,721 chunks (radius 480 blocks) on a 6-core machine:
 | --- | --- | --- |
 | Folia default (1 worker thread on 6 cores) | 3m 21s | 18.5 |
 | Stolia `/stolia pregen` (5 worker threads) | 40s | 94 |
+
+### Entity physics speed
+
+2,000 chickens crammed into one block plus 2,000 spread out and 2,000 dropped items, one region:
+
+| | MSPT |
+| --- | --- |
+| Folia | 750 |
+| Stolia | 252 |
+
+Verified on live data: with `-Dstolia.verifyPush=true` every push is also computed the vanilla way and
+compared (500,000 checks with cramming on and off, 0 differences).
 
 For normal play (players exploring new terrain), you can raise `chunk-system.worker-threads`
 in `config/paper-global.yml` if your CPU has headroom.
