@@ -34,6 +34,8 @@ public final class NoiseOffload {
     private static final Logger LOGGER = LogUtils.getClassLogger();
     private static final boolean VERIFY = Boolean.getBoolean("stolia.verifyOffload");
 
+    /** {@code -Dstolia.worker=true}: dedicated worker (Stolia Worker). Forces worker mode and opens no player port. */
+    public static final boolean WORKER_MODE = Boolean.getBoolean("stolia.worker");
     /** Set once all worlds are loaded (Folia never sets MinecraftServer#isReady). */
     public static volatile boolean serverStarted;
     private static volatile OffloadClient client;
@@ -55,6 +57,10 @@ public final class NoiseOffload {
         final OffloadConfig config = OffloadConfig.load();
         switch (config.mode()) {
             case "client" -> {
+                if (config.secret().length() < 8) {
+                    LOGGER.error("offload.mode is client but offload.secret is shorter than 8 characters; offload disabled");
+                    return;
+                }
                 if (config.workers().isEmpty()) {
                     LOGGER.warn("offload.mode is client but offload.workers is empty");
                     return;
@@ -172,7 +178,7 @@ public final class NoiseOffload {
             return lines;
         }
         if (currentWorker != null) {
-            lines.add("Worker mode: " + currentWorker.threads() + " threads, " + currentWorker.connections.get() + " client(s), "
+            lines.add("Worker mode: " + currentWorker.status + ", " + currentWorker.threads() + " threads, " + currentWorker.connections.get() + " connection(s), "
                 + currentWorker.computed.get() + " chunks computed");
         }
         if (currentClient != null) {

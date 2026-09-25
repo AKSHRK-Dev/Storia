@@ -63,6 +63,46 @@ index dc7dd4bf85c8744e660c4682be3646ddd3b05711..cf9980d76026e20661a2c515abd3f8c9
                  for (;;) {
                      try {
                          Thread.sleep(Long.MAX_VALUE);
+diff --git a/net/minecraft/server/dedicated/DedicatedServer.java b/net/minecraft/server/dedicated/DedicatedServer.java
+index cd5551c0221ad2a7b5c7d452d8d91ffc9711c3ee..3d81de8e6563b0cdc9cf9b5674464bf1bc1180d4 100644
+--- a/net/minecraft/server/dedicated/DedicatedServer.java
++++ b/net/minecraft/server/dedicated/DedicatedServer.java
+@@ -281,6 +281,11 @@ public class DedicatedServer extends MinecraftServer implements ServerInterface
+         // Paper end - Unix domain socket support
+ 
+         this.initializeKeyPair();
++        // Stolia start - worker mode: no player connections
++        if (dev.stolia.offload.NoiseOffload.WORKER_MODE) {
++            LOGGER.info("Stolia Worker mode: not listening for players; this server only computes terrain for other servers");
++            this.getConnection(); // create the (unbound) listener; later startup code expects it
++        } else {
+         LOGGER.info("Starting Minecraft server on {}:{}", this.getLocalIp().isEmpty() ? "*" : this.getLocalIp(), this.getPort());
+ 
+         try {
+@@ -292,6 +297,8 @@ public class DedicatedServer extends MinecraftServer implements ServerInterface
+             if (true) throw new IllegalStateException("Failed to bind to port", e); // Paper - Propagate failed to bind to port error
+             return false;
+         }
++        }
++        // Stolia end - worker mode
+ 
+         // CraftBukkit start
+         this.server.loadPlugins();
+@@ -345,12 +352,12 @@ public class DedicatedServer extends MinecraftServer implements ServerInterface
+             this.getAllLevels().forEach(l -> l.getGameRules().set(GameRules.SHOW_ADVANCEMENT_MESSAGES, properties.announcePlayerAchievements, this.overworld())); // Paper - per-world game rules
+         }
+ 
+-        if (properties.enableQuery) {
++        if (properties.enableQuery && !dev.stolia.offload.NoiseOffload.WORKER_MODE) { // Stolia - worker mode
+             LOGGER.info("Starting GS4 status listener");
+             this.queryThreadGs4 = QueryThreadGs4.create(this);
+         }
+ 
+-        if (properties.enableRcon) {
++        if (properties.enableRcon && !dev.stolia.offload.NoiseOffload.WORKER_MODE) { // Stolia - worker mode
+             LOGGER.info("Starting remote control listener");
+             this.rconThread = RconThread.create(this);
+         }
 diff --git a/net/minecraft/world/level/chunk/ChunkAccess.java b/net/minecraft/world/level/chunk/ChunkAccess.java
 index 28f703204afd834cd50335346ef065670d6b37ad..1fce973f7db2c061d309c4bd71b762500eba9aeb 100644
 --- a/net/minecraft/world/level/chunk/ChunkAccess.java

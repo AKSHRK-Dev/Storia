@@ -1,18 +1,14 @@
 package dev.stolia.offload;
 
 import com.mojang.logging.LogUtils;
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import dev.stolia.offload.protocol.Messages;
+import dev.stolia.offload.protocol.SecureChannel;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -27,7 +23,10 @@ import net.minecraft.world.level.levelgen.Beardifier;
 import net.minecraft.world.level.levelgen.NoiseBasedChunkGenerator;
 import org.slf4j.Logger;
 
-/** Server 1: keeps a connection to each configured worker and sends NOISE requests to the least busy one. */
+/**
+ * Server 1: keeps an encrypted connection to each configured worker or relay and sends NOISE requests to the
+ * least busy one that has capacity for the dimension.
+ */
 final class OffloadClient {
 
     private static final Logger LOGGER = LogUtils.getClassLogger();
@@ -59,7 +58,7 @@ final class OffloadClient {
         return Collections.unmodifiableList(this.connections);
     }
 
-    /** Sends a request to the least loaded worker that accepted the dimension, or returns null if none has room. */
+    /** Sends a request to the least loaded connection that accepts the dimension, or returns null if none has room. */
     CompletableFuture<byte[]> submit(final String dim, final int x, final int z, final Beardifier beardifier) {
         Connection best = null;
         for (final Connection connection : this.connections) {
@@ -67,12 +66,19 @@ final class OffloadClient {
                 best = connection;
             }
         }
-        return best == null ? null : best.send(this.nextId.incrementAndGet(), dim, x, z, beardifier);
+        if (best == null) {
+            return null;
+        }
+        try {
+            return best.send(this.nextId.incrementAndGet(), dim, OffloadWorker.requestBody(x, z, beardifier));
+        } catch (final IOException ex) {
+            return null;
+        }
     }
 
     private synchronized Map<String, String> localProbes() {
         if (this.localProbes == null) {
-            final Map<String, String> probes = new java.util.LinkedHashMap<>();
+            final Map<String, String> probes = new LinkedHashMap<>();
             for (final ServerLevel level : MinecraftServer.getServer().getAllLevels()) {
                 if (level.getChunkSource().getGenerator() instanceof NoiseBasedChunkGenerator) {
                     probes.put(NoiseOffload.levelId(level), NoiseCodec.probe(level));
@@ -101,10 +107,9 @@ final class OffloadClient {
 
     final class Connection {
         final String address;
-        private volatile DataOutputStream out;
-        private volatile Socket socket;
+        private volatile SecureChannel channel;
         private volatile Set<String> dims = Set.of();
-        private volatile int workerThreads;
+        private volatile int remoteThreads;
         private volatile String status = "connecting";
         private final Map<Long, Pending> pending = new ConcurrentHashMap<>();
         private final AtomicInteger inFlight = new AtomicInteger();
@@ -125,7 +130,7 @@ final class OffloadClient {
         }
 
         int limit() {
-            return OffloadClient.this.config.maxInFlight() > 0 ? OffloadClient.this.config.maxInFlight() : Math.max(1, this.workerThreads * 4);
+            return OffloadClient.this.config.maxInFlight() > 0 ? OffloadClient.this.config.maxInFlight() : this.remoteThreads * 4;
         }
 
         double averageRttMillis() {
@@ -138,37 +143,25 @@ final class OffloadClient {
         }
 
         private boolean canTake(final String dim) {
-            return this.out != null && this.dims.contains(dim) && this.inFlight.get() < this.limit();
+            return this.channel != null && this.remoteThreads > 0 && this.dims.contains(dim) && this.inFlight.get() < this.limit();
         }
 
         private double load() {
-            return (double) this.inFlight.get() / this.limit();
+            return (double) this.inFlight.get() / Math.max(1, this.limit());
         }
 
-        private CompletableFuture<byte[]> send(final long id, final String dim, final int x, final int z, final Beardifier beardifier) {
-            final DataOutputStream out = this.out;
-            if (out == null) {
+        private CompletableFuture<byte[]> send(final long id, final String dim, final byte[] body) throws IOException {
+            final SecureChannel current = this.channel;
+            if (current == null) {
                 return null;
             }
-            final byte[] payload;
-            try {
-                final ByteArrayOutputStream bytes = new ByteArrayOutputStream(256);
-                final DataOutputStream msg = new DataOutputStream(bytes);
-                msg.writeLong(id);
-                msg.writeUTF(dim);
-                msg.writeInt(x);
-                msg.writeInt(z);
-                NoiseCodec.writeBeardifier(msg, beardifier);
-                payload = bytes.toByteArray();
-            } catch (final IOException ex) {
-                return null;
-            }
+            final byte[] message = Messages.request(new Messages.Request(id, dim, body));
             final long now = System.nanoTime();
             final CompletableFuture<byte[]> future = new CompletableFuture<>();
             this.pending.put(id, new Pending(future, now + OffloadClient.this.config.timeoutMillis() * 1_000_000L, now));
             this.inFlight.incrementAndGet();
             try {
-                Frames.write(out, payload, false);
+                current.send(message);
             } catch (final IOException ex) {
                 this.fail(id, ex);
                 this.disconnect("send failed: " + ex.getMessage());
@@ -201,13 +194,15 @@ final class OffloadClient {
                     while (!NoiseOffload.serverStarted) {
                         Thread.sleep(1_000L);
                     }
-                    this.connectOnce();
+                    final SecureChannel opened = this.connectOnce();
                     backoff = 2_000L;
-                    this.readLoop();
+                    this.readLoop(opened);
                 } catch (final InterruptedException ex) {
                     return;
+                } catch (final java.io.EOFException ex) {
+                    this.disconnect("closed by peer (wrong secret, or the peer is not ready)");
                 } catch (final Throwable ex) {
-                    this.disconnect(ex.getMessage());
+                    this.disconnect(ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName());
                 }
                 try {
                     Thread.sleep(backoff);
@@ -218,93 +213,78 @@ final class OffloadClient {
             }
         }
 
-        private void connectOnce() throws IOException {
-            final int colon = this.address.lastIndexOf(':');
-            final String host = colon < 0 ? this.address : this.address.substring(0, colon);
-            final int port = colon < 0 ? 25590 : Integer.parseInt(this.address.substring(colon + 1));
+        private SecureChannel connectOnce() throws IOException {
+            final OffloadWorker.HostPort target = OffloadWorker.HostPort.parse(this.address, 25590);
             final Socket socket = new Socket();
-            socket.connect(new InetSocketAddress(host, port), 5_000);
-            socket.setTcpNoDelay(true);
-            final DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream(), 64 * 1024));
-            final DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream(), 64 * 1024));
-            final Map<String, String> probes = OffloadClient.this.localProbes();
-            out.writeUTF(Frames.MAGIC);
-            out.writeInt(Frames.PROTOCOL_VERSION);
-            out.writeUTF(OffloadClient.this.config.secret());
-            out.writeInt(probes.size());
-            for (final Map.Entry<String, String> probe : probes.entrySet()) {
-                out.writeUTF(probe.getKey());
-                out.writeUTF(probe.getValue());
+            socket.connect(new InetSocketAddress(target.host(), target.port()), 5_000);
+            final SecureChannel opened = SecureChannel.initiate(socket, OffloadClient.this.config.secret(), OffloadClient.this.config.compress());
+            try {
+                opened.send(Messages.hello(new Messages.Hello(Messages.ROLE_SERVER, 0, OffloadClient.this.localProbes())));
+                final Messages.Welcome welcome = Messages.readWelcome(opened.receive());
+                if (!welcome.ok()) {
+                    throw new IOException("refused: " + welcome.message());
+                }
+                if (!welcome.message().isEmpty()) {
+                    LOGGER.warn("Offload peer {}: not offloaded: {}", this.address, welcome.message());
+                }
+            } catch (final IOException ex) {
+                opened.close();
+                throw ex;
             }
-            out.flush();
-            final boolean ok = in.readBoolean();
-            final String message = in.readUTF();
-            final int threads = in.readInt();
-            final int accepted = in.readInt();
-            final Set<String> dims = new HashSet<>();
-            for (int i = 0; i < accepted; i++) {
-                dims.add(in.readUTF());
-            }
-            if (!ok) {
-                socket.close();
-                throw new IOException("worker refused: " + message);
-            }
-            this.socket = socket;
-            this.workerThreads = threads;
-            this.dims = Set.copyOf(dims);
-            this.out = out;
-            this.status = "connected (" + threads + " threads)";
-            LOGGER.info("Offloading noise generation to {} ({} threads) for {}{}", this.address, threads, dims,
-                message.isEmpty() ? "" : "; not offloaded: " + message);
-            this.readerIn = in;
+            this.channel = opened;
+            this.status = "connected (encrypted), waiting for capacity";
+            return opened;
         }
 
-        private DataInputStream readerIn;
-
-        private void readLoop() throws IOException {
-            final DataInputStream in = this.readerIn;
+        private void readLoop(final SecureChannel opened) throws IOException {
             while (true) {
-                final byte[] frame = Frames.read(in);
-                final DataInputStream msg = new DataInputStream(new ByteArrayInputStream(frame));
-                final long id = msg.readLong();
-                final int status = msg.readUnsignedByte();
-                final Pending entry = this.pending.remove(id);
-                if (entry == null) {
-                    continue; // timed out already
-                }
-                this.inFlight.decrementAndGet();
-                if (status == 0) {
-                    final byte[] result = new byte[frame.length - 9];
-                    System.arraycopy(frame, 9, result, 0, result.length);
-                    this.completed.incrementAndGet();
-                    this.totalRttNanos.addAndGet(System.nanoTime() - entry.sentAt());
-                    entry.future().complete(result);
-                } else {
-                    this.failed.incrementAndGet();
-                    entry.future().completeExceptionally(new IOException("worker error: " + msg.readUTF()));
+                final byte[] message = opened.receive();
+                switch (Messages.type(message)) {
+                    case Messages.CAPACITY -> {
+                        final Messages.Capacity capacity = Messages.readCapacity(message);
+                        final boolean first = this.remoteThreads == 0 && capacity.threads() > 0;
+                        this.remoteThreads = capacity.threads();
+                        this.dims = Set.copyOf(capacity.dims());
+                        this.status = "connected (encrypted), " + capacity.threads() + " threads";
+                        if (first) {
+                            LOGGER.info("Offloading noise generation to {} ({} threads, encrypted) for {}", this.address, capacity.threads(), capacity.dims());
+                        }
+                    }
+                    case Messages.RESPONSE -> {
+                        final Messages.Response response = Messages.readResponse(message);
+                        final Pending entry = this.pending.remove(response.id());
+                        if (entry == null) {
+                            continue; // timed out already
+                        }
+                        this.inFlight.decrementAndGet();
+                        if (response.status() == Messages.STATUS_OK) {
+                            this.completed.incrementAndGet();
+                            this.totalRttNanos.addAndGet(System.nanoTime() - entry.sentAt());
+                            entry.future().complete(response.body());
+                        } else {
+                            this.failed.incrementAndGet();
+                            entry.future().completeExceptionally(new IOException("worker error: " + Messages.readError(response.body())));
+                        }
+                    }
+                    default -> { }
                 }
             }
         }
 
         private void disconnect(final String reason) {
-            final boolean wasConnected = this.out != null;
-            this.out = null;
+            final SecureChannel current = this.channel;
+            this.channel = null;
+            this.remoteThreads = 0;
             this.dims = Set.of();
             this.status = "disconnected: " + reason;
-            final Socket socket = this.socket;
-            this.socket = null;
-            if (socket != null) {
-                try {
-                    socket.close();
-                } catch (final IOException ignored) {
-                    // closing anyway
-                }
+            if (current != null) {
+                current.close();
             }
             for (final Long id : new ArrayList<>(this.pending.keySet())) {
-                this.fail(id, new IOException("worker disconnected"));
+                this.fail(id, new IOException("offload peer disconnected"));
             }
-            if (wasConnected) {
-                LOGGER.warn("Offload worker {} disconnected ({}); generating locally until it is back", this.address, reason);
+            if (current != null) {
+                LOGGER.warn("Offload peer {} disconnected ({}); generating locally until it is back", this.address, reason);
             }
         }
     }

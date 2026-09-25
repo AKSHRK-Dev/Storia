@@ -14,13 +14,14 @@ record OffloadConfig(
     boolean compress,
     String bind,
     int port,
-    int threads
+    int threads,
+    String relay
 ) {
 
     static OffloadConfig load() {
         final YamlConfiguration config = YamlConfiguration.loadConfiguration(new File("stolia.yml"));
         return new OffloadConfig(
-            config.getString("offload.mode", "off").toLowerCase(java.util.Locale.ROOT),
+            NoiseOffload.WORKER_MODE ? "worker" : config.getString("offload.mode", "off").toLowerCase(java.util.Locale.ROOT),
             config.getString("offload.secret", ""),
             config.getStringList("offload.workers"),
             config.getInt("offload.max-in-flight", -1),
@@ -28,7 +29,8 @@ record OffloadConfig(
             config.getBoolean("offload.compress", true),
             config.getString("offload.bind", "0.0.0.0"),
             config.getInt("offload.port", 25590),
-            config.getInt("offload.threads", -1)
+            config.getInt("offload.threads", -1),
+            config.getString("offload.relay", "")
         );
     }
 }

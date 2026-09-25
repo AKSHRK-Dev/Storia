@@ -282,8 +282,10 @@ public final class RamWorld {
             "  list workers (host:port); on each helper machine run Stolia with a copy of the same world",
             "  (same seed and datapacks) and set mode: worker. Both need the same secret. Workers only",
             "  accept dimensions whose terrain matches exactly; anything else is generated locally, as is",
-            "  everything when a worker is busy, slow (timeout-ms) or down. The link is not encrypted:",
-            "  use it on a private network or VPN. max-in-flight -1 = worker threads * 4; threads -1 = cores."
+            "  everything when a worker is busy, slow (timeout-ms) or down. Traffic is encrypted and",
+            "  authenticated with the secret (at least 8 characters; the secret itself is never sent).",
+            "  workers may also point at a Stolia Relay. A worker with relay: host:port connects out to that",
+            "  relay instead of listening. max-in-flight -1 = worker threads * 4; threads -1 = cores."
         ));
         config.addDefault("ram-world.enabled", true);
         config.addDefault("ram-world.ram-directory", "/dev/shm/stolia");
@@ -311,6 +313,7 @@ public final class RamWorld {
         config.addDefault("offload.bind", "0.0.0.0");
         config.addDefault("offload.port", 25590);
         config.addDefault("offload.threads", -1);
+        config.addDefault("offload.relay", "");
         config.options().copyDefaults(true);
         try {
             config.save(file);
