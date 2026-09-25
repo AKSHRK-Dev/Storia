@@ -52,7 +52,16 @@ Requires Java 25 or newer.
 java -Xmx8G -jar stolia-26.2.jar nogui
 ```
 
-The latest build can be downloaded from the `stolia-jar` artifact in [Actions](../../actions).
+Download from [Releases](../../releases/latest):
+
+| File | What it is |
+| --- | --- |
+| `stolia-<version>.jar` | The Stolia server |
+| `stolia-worker-<version>.zip` | [Stolia Worker](packaging/worker/README.md): generates terrain for your server on another machine |
+| `stolia-relay-<version>.zip` | [Stolia Relay](packaging/relay/README.md): hands terrain work to any number of workers |
+| `stolia-proxy-<version>.jar` | [Stolia Proxy](https://github.com/AKSHRK-Dev/StoliaProxy): Velocity fork with 50 built-in placeholders |
+
+Development builds are also available as the `stolia-jar` artifact in [Actions](../../actions).
 
 ### Configuration (`stolia.yml`)
 
@@ -149,7 +158,11 @@ server 1 (players, worlds)  --- noise requests --->  server 2 (offload worker)
   exactly, so a different seed, datapack or build is refused rather than producing different terrain.
 - Only the noise step moves. Structures, features (trees, ores), lighting and everything that ticks stay on
   server 1, because they depend on neighbouring chunks or must finish within a 50 ms tick.
-- The link is **not encrypted**; use it on a private network or VPN.
+- The link is **encrypted and authenticated** (AES-256-GCM with keys derived from the shared secret; the secret
+  itself is never sent). A peer with a different secret is refused on its first message.
+- The easiest way to run a worker is the **Stolia Worker** package from Releases (`-Dstolia.worker=true`: no player
+  port, compute only). With a **Stolia Relay** in the middle, workers connect to the relay and can join or leave at
+  any time; servers just point `offload.workers` at the relay.
 - `-Dstolia.verifyOffload=true` on server 1 also generates every offloaded chunk locally and compares them.
 
 Pregenerating 3,721 chunks with server 1 on 3 cores and a worker on 3 other cores:

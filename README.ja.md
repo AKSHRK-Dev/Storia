@@ -52,7 +52,16 @@ Java 25 以上が必要です。
 java -Xmx8G -jar stolia-26.2.jar nogui
 ```
 
-最新のビルドは [Actions](../../actions) の成果物（`stolia-jar`）からダウンロードできます。
+[Releases](../../releases/latest) からダウンロードできます：
+
+| ファイル | 内容 |
+| --- | --- |
+| `stolia-<version>.jar` | Stolia サーバー本体 |
+| `stolia-worker-<version>.zip` | [Stolia Worker](packaging/worker/README.md)：別のマシンで地形生成を手伝う |
+| `stolia-relay-<version>.zip` | [Stolia Relay](packaging/relay/README.md)：複数のワーカーに仕事を配る |
+| `stolia-proxy-<version>.jar` | [Stolia Proxy](https://github.com/AKSHRK-Dev/StoliaProxy)：プレースホルダー 50 個入りの Velocity フォーク |
+
+開発版は [Actions](../../actions) の成果物（`stolia-jar`）からもダウンロードできます。
 
 ### 設定（`stolia.yml`）
 
@@ -149,7 +158,11 @@ player-budget:
   シード・データパック・ビルドが違う場合は、違う地形を作る代わりに接続を断ります。
 - 任せるのはノイズ段階だけです。構造物・装飾（木・鉱石）・光・tick するものはすべてサーバー①に残ります。
   隣のチャンクに依存するか、50ms の tick 内に終わらせる必要があるためです。
-- 通信は**暗号化されていません**。LAN か VPN の中で使ってください。
+- 通信は**暗号化・認証されています**（合言葉から作った鍵で AES-256-GCM。合言葉そのものは送りません）。
+  合言葉が違う相手は、最初のメッセージで接続を断ります。
+- ワーカーは Releases の **Stolia Worker** パックを使うのが簡単です（`-Dstolia.worker=true`：プレイヤー用のポートを
+  開かず、計算だけをします）。間に **Stolia Relay** を置くと、ワーカーは Relay につなぎに行くので、いつでも追加・削除
+  できます。サーバー側は `offload.workers` に Relay のアドレスを書くだけです。
 - サーバー①を `-Dstolia.verifyOffload=true` で起動すると、任せたチャンクを自分でも生成して比べます。
 
 サーバー①に3コア、ワーカーに別の3コアを割り当てて 3,721 チャンクを事前生成した結果：
