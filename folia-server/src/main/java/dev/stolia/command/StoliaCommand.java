@@ -22,13 +22,13 @@ import static net.kyori.adventure.text.Component.text;
 
 public final class StoliaCommand extends Command {
 
-    private static final List<String> SUBCOMMANDS = List.of("sync", "status", "pregen", "budget", "region");
+    private static final List<String> SUBCOMMANDS = List.of("sync", "status", "pregen", "budget", "region", "offload");
     private static final List<String> PREGEN_SUBCOMMANDS = List.of("start", "stop", "status", "resume");
 
     public StoliaCommand(final String name) {
         super(name);
         this.description = "Stolia commands";
-        this.usageMessage = "/stolia [sync | status | pregen | budget | region]";
+        this.usageMessage = "/stolia [sync | status | pregen | budget | region | offload]";
         this.setPermission("stolia.command.stolia");
     }
 
@@ -44,6 +44,7 @@ public final class StoliaCommand extends Command {
             case "pregen" -> this.pregen(sender, args);
             case "budget" -> this.budget(sender);
             case "region" -> this.regions(sender);
+            case "offload" -> dev.stolia.offload.NoiseOffload.status().forEach(line -> sender.sendMessage(text(line, NamedTextColor.WHITE)));
             default -> sender.sendMessage(text("Usage: " + this.usageMessage, NamedTextColor.RED));
         }
         return true;

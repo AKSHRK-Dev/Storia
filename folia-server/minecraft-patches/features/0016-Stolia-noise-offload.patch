@@ -1,0 +1,164 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AKSHRK-Dev <311836316+AKSHRK-Dev@users.noreply.github.com>
+Date: Fri, 25 Sep 2026 14:13:34 +0900
+Subject: [PATCH] Stolia noise offload
+
+
+diff --git a/ca/spottedleaf/moonrise/patches/chunk_system/scheduling/task/ChunkUpgradeGenericStatusTask.java b/ca/spottedleaf/moonrise/patches/chunk_system/scheduling/task/ChunkUpgradeGenericStatusTask.java
+index 78fd90e0aa4d84ab13de8c101c5d31596e9ba1f7..58c49d4c680683e260c2320006740baf5eb3599a 100644
+--- a/ca/spottedleaf/moonrise/patches/chunk_system/scheduling/task/ChunkUpgradeGenericStatusTask.java
++++ b/ca/spottedleaf/moonrise/patches/chunk_system/scheduling/task/ChunkUpgradeGenericStatusTask.java
+@@ -130,6 +130,23 @@ public final class ChunkUpgradeGenericStatusTask extends ChunkProgressionTask im
+             return;
+         }
+ 
++        // Stolia start - offload: complete later instead of blocking a worker thread on a remote result.
++        // Only for parallel-capable statuses, which hold no area lock, so finishing from another task is safe.
++        if (generation && !completeFuture.isDone() && ((ChunkSystemChunkStatus)this.toStatus).moonrise$isParallelCapable()) {
++            // this task has already run, so its own priority is no longer a queueable one
++            final Priority current = this.getPriority();
++            final Priority priority = Priority.isValidPriority(current) ? current : Priority.NORMAL;
++            completeFuture.whenComplete((final ChunkAccess result, final Throwable throwable) -> {
++                try {
++                    this.scheduler.parallelGenExecutor.createTask(() -> this.stolia$finish(result, throwable), priority).queue();
++                } catch (final Throwable queueFailure) {
++                    this.stolia$finish(result, throwable);
++                }
++            });
++            return;
++        }
++        // Stolia end - offload
++
+         if (!completeFuture.isDone() && !((ChunkSystemChunkStatus)this.toStatus).moonrise$getWarnedAboutNoImmediateComplete().getAndSet(true)) {
+             LOGGER.warn("Future status not complete after scheduling: " + this.toStatus.toString() + ", generate: " + generation);
+         }
+@@ -156,6 +173,18 @@ public final class ChunkUpgradeGenericStatusTask extends ChunkProgressionTask im
+         this.complete(newChunk, null);
+     }
+ 
++    // Stolia start - offload
++    private void stolia$finish(final ChunkAccess newChunk, final Throwable throwable) {
++        if (throwable != null) {
++            this.complete(null, throwable);
++        } else if (newChunk == null) {
++            this.complete(null, new IllegalStateException("Chunk for status: " + this.toStatus + " should not be null!").fillInStackTrace());
++        } else {
++            this.complete(newChunk, null);
++        }
++    }
++    // Stolia end - offload
++
+     private volatile boolean scheduled;
+     private static final VarHandle SCHEDULED_HANDLE = ConcurrentUtil.getVarHandle(ChunkUpgradeGenericStatusTask.class, "scheduled", boolean.class);
+ 
+diff --git a/net/minecraft/server/MinecraftServer.java b/net/minecraft/server/MinecraftServer.java
+index dc7dd4bf85c8744e660c4682be3646ddd3b05711..cf9980d76026e20661a2c515abd3f8c9ea242e53 100644
+--- a/net/minecraft/server/MinecraftServer.java
++++ b/net/minecraft/server/MinecraftServer.java
+@@ -1359,6 +1359,7 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+                 io.papermc.paper.threadedregions.RegionizedServer.getInstance().init(); // Folia - region threading - only after loading worlds
+                 final long actualDoneTimeMs = System.currentTimeMillis() - org.bukkit.craftbukkit.Main.BOOT_TIME.toEpochMilli(); // Paper - Improve startup message
+                 LOGGER.info("Done ({})! For help, type \"help\"", String.format(java.util.Locale.ROOT, "%.3fs", actualDoneTimeMs / 1000.00D)); // Paper - Improve startup message
++                dev.stolia.offload.NoiseOffload.serverStarted = true; // Stolia - offload: Folia never sets isReady
+                 for (;;) {
+                     try {
+                         Thread.sleep(Long.MAX_VALUE);
+diff --git a/net/minecraft/world/level/chunk/ChunkAccess.java b/net/minecraft/world/level/chunk/ChunkAccess.java
+index 28f703204afd834cd50335346ef065670d6b37ad..1fce973f7db2c061d309c4bd71b762500eba9aeb 100644
+--- a/net/minecraft/world/level/chunk/ChunkAccess.java
++++ b/net/minecraft/world/level/chunk/ChunkAccess.java
+@@ -481,6 +481,10 @@ public abstract class ChunkAccess implements LightChunk, StructureAccess, BiomeM
+         return this.levelHeightAccessor.getHeight();
+     }
+ 
++    public @Nullable NoiseChunk stolia$getNoiseChunk() { // Stolia - offload accessor
++        return this.noiseChunk;
++    }
++
+     public NoiseChunk getOrCreateNoiseChunk(final Function<ChunkAccess, NoiseChunk> factory) {
+         if (this.noiseChunk == null) {
+             this.noiseChunk = factory.apply(this);
+diff --git a/net/minecraft/world/level/chunk/status/ChunkStatusTasks.java b/net/minecraft/world/level/chunk/status/ChunkStatusTasks.java
+index 478771c9f01d8674727cffdff90008c3b8608d69..3b3ce76add95f4c211402e56941081f6368eab73 100644
+--- a/net/minecraft/world/level/chunk/status/ChunkStatusTasks.java
++++ b/net/minecraft/world/level/chunk/status/ChunkStatusTasks.java
+@@ -87,8 +87,15 @@ public class ChunkStatusTasks {
+     ) {
+         ServerLevel level = context.level();
+         WorldGenRegion region = new WorldGenRegion(level, chunks, step, chunk);
+-        return context.generator()
+-            .fillFromNoise(Blender.of(region), level.getChunkSource().randomState(), level.structureManager().forWorldGenRegion(region), chunk)
++        // Stolia start - offload noise generation to a worker server when possible
++        final Blender blender = Blender.of(region);
++        final net.minecraft.world.level.StructureManager structureManager = level.structureManager().forWorldGenRegion(region);
++        CompletableFuture<ChunkAccess> filled = dev.stolia.offload.NoiseOffload.tryOffload(level, context.generator(), blender, structureManager, chunk);
++        if (filled == null) {
++            filled = context.generator().fillFromNoise(blender, level.getChunkSource().randomState(), structureManager, chunk);
++        }
++        return filled
++        // Stolia end - offload noise generation to a worker server when possible
+             .thenApply(generatedChunk -> {
+                 if (generatedChunk instanceof ProtoChunk protoChunk) {
+                     BelowZeroRetrogen belowZeroRetrogen = protoChunk.getBelowZeroRetrogen();
+diff --git a/net/minecraft/world/level/levelgen/Beardifier.java b/net/minecraft/world/level/levelgen/Beardifier.java
+index 6781da6102df878da9db986f2687fbc47efcc8be..f8a9c938be955a052cf20fcee9bfacfab0562c69 100644
+--- a/net/minecraft/world/level/levelgen/Beardifier.java
++++ b/net/minecraft/world/level/levelgen/Beardifier.java
+@@ -34,6 +34,19 @@ public class Beardifier implements DensityFunctions.BeardifierOrMarker {
+     private final List<Beardifier.Rigid> pieces;
+     private final List<JigsawJunction> junctions;
+     private final @Nullable BoundingBox affectedBox;
++    // Stolia start - offload accessors
++    public List<Beardifier.Rigid> stolia$pieces() {
++        return this.pieces;
++    }
++
++    public List<JigsawJunction> stolia$junctions() {
++        return this.junctions;
++    }
++
++    public @Nullable BoundingBox stolia$affectedBox() {
++        return this.affectedBox;
++    }
++    // Stolia end - offload accessors
+ 
+     public static Beardifier forStructuresInChunk(final StructureManager structureManager, final ChunkPos chunkPos) {
+         List<StructureStart> structureStarts = structureManager.startsForStructure(chunkPos, s -> s.terrainAdaptation() != TerrainAdjustment.NONE);
+diff --git a/net/minecraft/world/level/levelgen/NoiseBasedChunkGenerator.java b/net/minecraft/world/level/levelgen/NoiseBasedChunkGenerator.java
+index 3f66d1144daf7139a91bfa35e2c288d88bbae38b..50e7cd73632f4915f23f379de12e29c02999178e 100644
+--- a/net/minecraft/world/level/levelgen/NoiseBasedChunkGenerator.java
++++ b/net/minecraft/world/level/levelgen/NoiseBasedChunkGenerator.java
+@@ -381,6 +381,13 @@ public final class NoiseBasedChunkGenerator extends ChunkGenerator {
+         }, Runnable::run); // Paper - rewrite chunk system
+     }
+ 
++    // Stolia start - offload: fill a detached chunk with a given beardifier (no blending), exactly as fillFromNoise would
++    public ChunkAccess stolia$fillDetached(final RandomState randomState, final Beardifier beardifier, final ChunkAccess chunk) {
++        chunk.getOrCreateNoiseChunk(c -> NoiseChunk.forChunk(c, randomState, beardifier, this.settings.value(), this.globalFluidPicker.get(), Blender.empty()));
++        return this.fillFromNoise(Blender.empty(), randomState, null, chunk).join();
++    }
++    // Stolia end - offload
++
+     private ChunkAccess doFill(
+         final Blender blender,
+         final StructureManager structureManager,
+diff --git a/net/minecraft/world/level/levelgen/NoiseChunk.java b/net/minecraft/world/level/levelgen/NoiseChunk.java
+index 117c3e33d49b92ca0807c576237fe135e40c524d..304e88f3ca8dcd19f82a359d549ce09cd738d79d 100644
+--- a/net/minecraft/world/level/levelgen/NoiseChunk.java
++++ b/net/minecraft/world/level/levelgen/NoiseChunk.java
+@@ -38,6 +38,15 @@ public class NoiseChunk implements DensityFunction.FunctionContext, DensityFunct
+     private final DensityFunction fullNoiseDensity;
+     private final NoiseChunk.BlockStateFiller blockStateRule;
+     private final Blender blender;
++    // Stolia start - offload accessors
++    public DensityFunctions.BeardifierOrMarker stolia$beardifier() {
++        return this.beardifier;
++    }
++
++    public Blender stolia$blender() {
++        return this.blender;
++    }
++    // Stolia end - offload accessors
+     private final NoiseChunk.@Nullable FlatCache blendAlpha;
+     private final NoiseChunk.@Nullable FlatCache blendOffset;
+     private final DensityFunctions.BeardifierOrMarker beardifier;

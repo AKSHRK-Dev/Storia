@@ -53,15 +53,16 @@ index 10a0be7a4db1a51579d113d279af7a9effe7f438..87c26a9d362d39c60da9993a520c8425
  
      @Override
 diff --git a/src/main/java/io/papermc/paper/command/PaperCommands.java b/src/main/java/io/papermc/paper/command/PaperCommands.java
-index 6216147f4d4c04ba616375430a91232d5ebe838a..58451775ec0fb87be0a9046075e962fe643ad098 100644
+index 6216147f4d4c04ba616375430a91232d5ebe838a..e00d68e08491b2ad7b1ddaa6c7d4e7268bc5558e 100644
 --- a/src/main/java/io/papermc/paper/command/PaperCommands.java
 +++ b/src/main/java/io/papermc/paper/command/PaperCommands.java
-@@ -25,6 +25,8 @@ public final class PaperCommands {
+@@ -25,6 +25,9 @@ public final class PaperCommands {
          COMMANDS.put("paper", new PaperCommand("paper"));
          COMMANDS.put("tps", new io.papermc.paper.threadedregions.commands.CommandServerHealth()); // Folia - region threading
          COMMANDS.put("profiler", new io.papermc.paper.threadedregions.commands.CommandProfiler()); // Folia - region threading - profiler
 +        COMMANDS.put("stolia", new dev.stolia.command.StoliaCommand("stolia")); // Stolia - stolia command
 +        dev.stolia.budget.PlayerBudget.start(); // Stolia - player budget
++        dev.stolia.offload.NoiseOffload.start(); // Stolia - noise offload
  
          COMMANDS.forEach((s, command) -> {
              server.server.getCommandMap().register(s, "Paper", command);

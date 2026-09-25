@@ -35,6 +35,11 @@
   Entity pushing (the cost of mobs crammed together) is about 3x faster with identical results:
   the same entities are pushed in the same order, and cramming damage and its random roll are unchanged.
   Redstone is not modified.
+- **Terrain generation on other machines (Stolia)**
+  Run Stolia on a second machine as an offload *worker* and the main server sends it the heaviest part of
+  terrain generation (the noise step: terrain shape, caves, aquifers). Results are identical to local
+  generation, and the main server falls back to generating locally whenever a worker is busy, slow or down.
+  See [Offloading terrain generation](#offloading-terrain-generation).
 - **Faster world generation (Stolia)**
   Noise sampling and block counting are optimized. Terrain is **identical to vanilla** for the same seed
   (the noise changes are verified bit-for-bit against the original code).
@@ -89,6 +94,7 @@ player-budget:
 | `/stolia pregen start <radius> [world] [x z]` | Pregenerate a square of `radius` blocks around spawn (or x z) | `stolia.command.stolia` (op) |
 | `/stolia budget` | Tick thread usage, heap, and each player's region load and current distances | `stolia.command.stolia` (op) |
 | `/stolia region` | Busiest regions: thread usage, MSPT, TPS, players, chunks | `stolia.command.stolia` (op) |
+| `/stolia offload` | Offload connections, chunks offloaded, reasons chunks were generated locally | `stolia.command.stolia` (op) |
 | `/stolia pregen stop` / `resume` / `status` | Stop (progress is saved), resume after a restart, show progress | `stolia.command.stolia` (op) |
 
 ### Chunk generation speed
@@ -114,6 +120,46 @@ compared (500,000 checks with cramming on and off, 0 differences).
 
 For normal play (players exploring new terrain), you can raise `chunk-system.worker-threads`
 in `config/paper-global.yml` if your CPU has headroom.
+
+## Offloading terrain generation
+
+```
+server 1 (players, worlds)  --- noise requests --->  server 2 (offload worker)
+  structures, features, light <--- terrain blocks ---   terrain noise
+```
+
+1. On server 2, run Stolia with **a copy of the same world** (same seed and datapacks), and in `stolia.yml`:
+   ```yaml
+   offload:
+     mode: worker
+     secret: some-long-random-string
+     port: 25590
+     threads: -1        # -1 = all cores
+   ```
+2. On server 1:
+   ```yaml
+   offload:
+     mode: client
+     secret: some-long-random-string
+     workers: ["192.168.0.20:25590"]   # several workers are fine
+   ```
+3. `/stolia offload` shows the connection, how many chunks were offloaded and why others were generated locally.
+
+- On connect, both servers generate the same probe chunks; a dimension is only offloaded if the results match
+  exactly, so a different seed, datapack or build is refused rather than producing different terrain.
+- Only the noise step moves. Structures, features (trees, ores), lighting and everything that ticks stay on
+  server 1, because they depend on neighbouring chunks or must finish within a 50 ms tick.
+- The link is **not encrypted**; use it on a private network or VPN.
+- `-Dstolia.verifyOffload=true` on server 1 also generates every offloaded chunk locally and compares them.
+
+Pregenerating 3,721 chunks with server 1 on 3 cores and a worker on 3 other cores:
+
+| | Time |
+| --- | --- |
+| Server 1 alone | 1m 35s |
+| Server 1 + worker | 1m 6s (95% of noise steps offloaded; 0 of 888 verified chunks differed) |
+
+If the worker is killed in the middle, server 1 finishes on its own (the 12 requests in flight were regenerated locally).
 
 ## Plugin compatibility
 
