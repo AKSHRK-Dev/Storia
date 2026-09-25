@@ -1,6 +1,6 @@
 <div align=center>
-    <img src="./stolia.png" alt="Stolia logo" width="128">
-    <h1>Stolia</h1>
+    <img src="./storia.png" alt="Storia logo" width="128">
+    <h1>Storia</h1>
     <p>A high-efficiency Minecraft server for large player counts, based on <a href="https://github.com/PaperMC/Folia">Folia</a></p>
     <p><b>English</b> | <a href="./README.ja.md">日本語</a></p>
 </div>
@@ -10,7 +10,7 @@
 - **Regionised multithreading (from Folia)**
   Nearby chunks are grouped into independent "regions" that tick in parallel.
   This scales well on large servers where players spread out (SMP, skyblock, etc.).
-- **RAM world (Stolia)**
+- **RAM world (Storia)**
   On startup the world is loaded into RAM (`/dev/shm`) and the server reads and writes it there,
   so disk I/O stops being a bottleneck.
   - Only changed files are written back to disk in the background, at a fixed interval
@@ -18,11 +18,11 @@
   - `stop` writes everything to disk
   - If the process is killed, the RAM copy survives as long as the machine stays up; it is detected and recovered to disk on the next start
   - If there is not enough RAM, the server falls back to loading from disk as usual
-- **Fast chunk pregeneration (Stolia)**
-  `/stolia pregen` generates chunks ahead of time so players never wait for terrain.
+- **Fast chunk pregeneration (Storia)**
+  `/storia pregen` generates chunks ahead of time so players never wait for terrain.
   While it runs, the chunk worker pool is raised to all cores but one (Folia's default is only
   about a quarter of the cores), then restored. Progress survives restarts.
-- **Per-player budget (Stolia)**
+- **Per-player budget (Storia)**
   Every player gets a fair share of the region tick threads. If a region's own tick time is too high,
   or the tick threads are saturated and a region uses more than its players' share, only the players
   in that region get a lower view distance; it is restored once the region recovers. Players in other
@@ -31,16 +31,16 @@
   **Simulation distance is not touched by default, so redstone and farms keep running**; view distance
   is only lowered down to the simulation distance, so set `view-distance` above `simulation-distance`
   to give it room (e.g. 12 / 8). `lower-simulation-distance: true` also lowers simulation distance.
-- **Faster entity physics (Stolia)**
+- **Faster entity physics (Storia)**
   Entity pushing (the cost of mobs crammed together) is about 3x faster with identical results:
   the same entities are pushed in the same order, and cramming damage and its random roll are unchanged.
   Redstone is not modified.
-- **Terrain generation on other machines (Stolia)**
-  Run Stolia on a second machine as an offload *worker* and the main server sends it the heaviest part of
+- **Terrain generation on other machines (Storia)**
+  Run Storia on a second machine as an offload *worker* and the main server sends it the heaviest part of
   terrain generation (the noise step: terrain shape, caves, aquifers). Results are identical to local
   generation, and the main server falls back to generating locally whenever a worker is busy, slow or down.
   See [Offloading terrain generation](#offloading-terrain-generation).
-- **Faster world generation (Stolia)**
+- **Faster world generation (Storia)**
   Noise sampling and block counting are optimized. Terrain is **identical to vanilla** for the same seed
   (the noise changes are verified bit-for-bit against the original code).
 
@@ -49,28 +49,28 @@
 Requires Java 25 or newer.
 
 ```sh
-java -Xmx8G -jar stolia-26.2.jar nogui
+java -Xmx8G -jar storia-26.2.jar nogui
 ```
 
 Download from [Releases](../../releases/latest):
 
 | File | What it is |
 | --- | --- |
-| `stolia-<version>.jar` | The Stolia server |
-| `stolia-worker-<version>.zip` | [Stolia Worker](packaging/worker/README.md): generates terrain for your server on another machine |
-| `stolia-relay-<version>.zip` | [Stolia Relay](packaging/relay/README.md): hands terrain work to any number of workers |
-| `stolia-proxy-<version>.jar` | [Stolia Proxy](https://github.com/AKSHRK-Dev/StoliaProxy): Velocity fork with 50 built-in placeholders |
+| `storia-<version>.jar` | The Storia server |
+| `storia-worker-<version>.zip` | [Storia Worker](packaging/worker/README.md): generates terrain for your server on another machine |
+| `storia-relay-<version>.zip` | [Storia Relay](packaging/relay/README.md): hands terrain work to any number of workers |
+| `storia-proxy-<version>.jar` | [Storia Proxy](https://github.com/AKSHRK-Dev/StoriaProxy): Velocity fork with 50 built-in placeholders |
 
-Development builds are also available as the `stolia-jar` artifact in [Actions](../../actions).
+Development builds are also available as the `storia-jar` artifact in [Actions](../../actions).
 
-### Configuration (`stolia.yml`)
+### Configuration (`storia.yml`)
 
 Created in the server folder on first start.
 
 ```yaml
 ram-world:
   enabled: true
-  ram-directory: /dev/shm/stolia
+  ram-directory: /dev/shm/storia
   sync-interval-seconds: 300   # shorter is safer, longer is more efficient
   min-free-mb: 512             # load from disk if RAM would drop below this
   delete-on-shutdown: true     # delete the RAM copy after a clean shutdown
@@ -98,13 +98,13 @@ player-budget:
 
 | Command | Description | Permission |
 | --- | --- | --- |
-| `/stolia status` | Show the RAM world status (paths, usage, last sync) | `stolia.command.stolia` (op) |
-| `/stolia sync` | Write the RAM world to disk now | `stolia.command.stolia` (op) |
-| `/stolia pregen start <radius> [world] [x z]` | Pregenerate a square of `radius` blocks around spawn (or x z) | `stolia.command.stolia` (op) |
-| `/stolia budget` | Tick thread usage, heap, and each player's region load and current distances | `stolia.command.stolia` (op) |
-| `/stolia region` | Busiest regions: thread usage, MSPT, TPS, players, chunks | `stolia.command.stolia` (op) |
-| `/stolia offload` | Offload connections, chunks offloaded, reasons chunks were generated locally | `stolia.command.stolia` (op) |
-| `/stolia pregen stop` / `resume` / `status` | Stop (progress is saved), resume after a restart, show progress | `stolia.command.stolia` (op) |
+| `/storia status` | Show the RAM world status (paths, usage, last sync) | `storia.command.storia` (op) |
+| `/storia sync` | Write the RAM world to disk now | `storia.command.storia` (op) |
+| `/storia pregen start <radius> [world] [x z]` | Pregenerate a square of `radius` blocks around spawn (or x z) | `storia.command.storia` (op) |
+| `/storia budget` | Tick thread usage, heap, and each player's region load and current distances | `storia.command.storia` (op) |
+| `/storia region` | Busiest regions: thread usage, MSPT, TPS, players, chunks | `storia.command.storia` (op) |
+| `/storia offload` | Offload connections, chunks offloaded, reasons chunks were generated locally | `storia.command.storia` (op) |
+| `/storia pregen stop` / `resume` / `status` | Stop (progress is saved), resume after a restart, show progress | `storia.command.storia` (op) |
 
 ### Chunk generation speed
 
@@ -113,7 +113,7 @@ Pregenerating 3,721 chunks (radius 480 blocks) on a 6-core machine:
 | | Time | Chunks/s |
 | --- | --- | --- |
 | Folia default (1 worker thread on 6 cores) | 3m 21s | 18.5 |
-| Stolia `/stolia pregen` (5 worker threads) | 40s | 94 |
+| Storia `/storia pregen` (5 worker threads) | 40s | 94 |
 
 ### Entity physics speed
 
@@ -122,9 +122,9 @@ Pregenerating 3,721 chunks (radius 480 blocks) on a 6-core machine:
 | | MSPT |
 | --- | --- |
 | Folia | 750 |
-| Stolia | 252 |
+| Storia | 252 |
 
-Verified on live data: with `-Dstolia.verifyPush=true` every push is also computed the vanilla way and
+Verified on live data: with `-Dstoria.verifyPush=true` every push is also computed the vanilla way and
 compared (500,000 checks with cramming on and off, 0 differences).
 
 For normal play (players exploring new terrain), you can raise `chunk-system.worker-threads`
@@ -137,7 +137,7 @@ server 1 (players, worlds)  --- noise requests --->  server 2 (offload worker)
   structures, features, light <--- terrain blocks ---   terrain noise
 ```
 
-1. On server 2, run Stolia with **a copy of the same world** (same seed and datapacks), and in `stolia.yml`:
+1. On server 2, run Storia with **a copy of the same world** (same seed and datapacks), and in `storia.yml`:
    ```yaml
    offload:
      mode: worker
@@ -152,7 +152,7 @@ server 1 (players, worlds)  --- noise requests --->  server 2 (offload worker)
      secret: some-long-random-string
      workers: ["192.168.0.20:25590"]   # several workers are fine
    ```
-3. `/stolia offload` shows the connection, how many chunks were offloaded and why others were generated locally.
+3. `/storia offload` shows the connection, how many chunks were offloaded and why others were generated locally.
 
 - On connect, both servers generate the same probe chunks; a dimension is only offloaded if the results match
   exactly, so a different seed, datapack or build is refused rather than producing different terrain.
@@ -160,10 +160,10 @@ server 1 (players, worlds)  --- noise requests --->  server 2 (offload worker)
   server 1, because they depend on neighbouring chunks or must finish within a 50 ms tick.
 - The link is **encrypted and authenticated** (AES-256-GCM with keys derived from the shared secret; the secret
   itself is never sent). A peer with a different secret is refused on its first message.
-- The easiest way to run a worker is the **Stolia Worker** package from Releases (`-Dstolia.worker=true`: no player
-  port, compute only). With a **Stolia Relay** in the middle, workers connect to the relay and can join or leave at
+- The easiest way to run a worker is the **Storia Worker** package from Releases (`-Dstoria.worker=true`: no player
+  port, compute only). With a **Storia Relay** in the middle, workers connect to the relay and can join or leave at
   any time; servers just point `offload.workers` at the relay.
-- `-Dstolia.verifyOffload=true` on server 1 also generates every offloaded chunk locally and compares them.
+- `-Dstoria.verifyOffload=true` on server 1 also generates every offloaded chunk locally and compares them.
 
 Pregenerating 3,721 chunks with server 1 on 3 cores and a worker on 3 other cores:
 
@@ -176,7 +176,7 @@ If the worker is killed in the middle, server 1 finishes on its own (the 12 requ
 
 ## Plugin compatibility
 
-Stolia uses the same threading model as Folia, so **only Folia-compatible plugins work**
+Storia uses the same threading model as Folia, so **only Folia-compatible plugins work**
 (those with `folia-supported: true` in `plugin.yml`).
 `ServerBuildInfo#isBrandCompatible(papermc:folia)` also returns `true`, so plugins that check for Folia work too.
 
@@ -192,11 +192,11 @@ For details on the threading model and recommended settings, see the [Folia READ
 
 ### Making changes
 
-- Stolia's own classes: `folia-server/src/main/java/dev/stolia/`
+- Storia's own classes: `folia-server/src/main/java/dev/storia/`
 - Minecraft changes: commit in `folia-server/src/minecraft/java` → `./gradlew rebuildMinecraftFeaturePatches`
 - Paper changes: commit in `paper-server` → `./gradlew rebuildPaperServerFeaturePatches`
 
 ## License
 
 Patches are licensed under [PATCHES-LICENSE](./PATCHES-LICENSE).
-Stolia is a derivative of [PaperMC/Folia](https://github.com/PaperMC/Folia) (and [Paper](https://github.com/PaperMC/Paper)). Thanks to the upstream developers.
+Storia is a derivative of [PaperMC/Folia](https://github.com/PaperMC/Folia) (and [Paper](https://github.com/PaperMC/Paper)). Thanks to the upstream developers.

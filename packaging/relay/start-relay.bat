@@ -1,5 +1,5 @@
 @echo off
-rem Stolia Relay: hands terrain work from Stolia servers to Stolia Workers.
+rem Storia Relay: hands terrain work from Storia servers to Storia Workers.
 cd /d "%~dp0"
-java -Xmx256M -jar stolia-relay.jar relay.properties
+java -Xmx256M -jar storia-relay.jar relay.properties
 pause

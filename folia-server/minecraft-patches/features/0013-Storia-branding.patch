@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AKSHRK-Dev <311836316+AKSHRK-Dev@users.noreply.github.com>
+Date: Thu, 24 Sep 2026 23:14:42 +0900
+Subject: [PATCH] Storia branding
+
+
+diff --git a/io/papermc/paper/threadedregions/TickRegionScheduler.java b/io/papermc/paper/threadedregions/TickRegionScheduler.java
+index 5a72fa0d72bfdb927293abe921c57f6ae964a6ec..c2d3dc209c1b21b237d8d10f714051677e5640ba 100644
+--- a/io/papermc/paper/threadedregions/TickRegionScheduler.java
++++ b/io/papermc/paper/threadedregions/TickRegionScheduler.java
+@@ -106,7 +106,7 @@ public final class TickRegionScheduler {
+                 threadAllocation = new Int2IntLinkedOpenHashMap();
+                 threadAllocation.put(0, threads);
+ 
+-                LOGGER.info("Folia is using " + threads + " tick threads");
++                LOGGER.info("Storia is using " + threads + " tick threads");
+             } else {
+                 final int nodes = stealingScheduledThreadPool.getNuma().getTotalNumaNodes();
+ 
+@@ -117,7 +117,7 @@ public final class TickRegionScheduler {
+                     threadAllocation.put(i, threadsPerNode);
+                 }
+ 
+-                LOGGER.info("Folia is using " + threadsPerNode + " tick threads per NUMA node, with " + nodes + " NUMA nodes detected");
++                LOGGER.info("Storia is using " + threadsPerNode + " tick threads per NUMA node, with " + nodes + " NUMA nodes detected");
+             }
+ 
+             stealingScheduledThreadPool.setThreadAllocation(threadAllocation, stealThresholdNS, taskTimeSliceNS);
+diff --git a/net/minecraft/server/gui/MinecraftServerGui.java b/net/minecraft/server/gui/MinecraftServerGui.java
+index 79518cbca7760f710130509d93d27fb017d67159..a01468ef625150d7d7c58923e058736f8842a631 100644
+--- a/net/minecraft/server/gui/MinecraftServerGui.java
++++ b/net/minecraft/server/gui/MinecraftServerGui.java
+@@ -58,7 +58,7 @@ public class MinecraftServerGui extends JComponent {
+         // Paper start - Improve ServerGUI
+         frame.setName("Minecraft server");
+         try {
+-            frame.setIconImage(javax.imageio.ImageIO.read(java.util.Objects.requireNonNull(MinecraftServerGui.class.getClassLoader().getResourceAsStream("folia-logo.png"))));
++            frame.setIconImage(javax.imageio.ImageIO.read(java.util.Objects.requireNonNull(MinecraftServerGui.class.getClassLoader().getResourceAsStream("storia-logo.png"))));
+         } catch (java.io.IOException ignore) {
+         }
+         // Paper end - Improve ServerGUI

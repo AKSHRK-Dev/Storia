@@ -32,9 +32,9 @@ jobs:
       - name: Build Paperclip jar
         run: ./gradlew createPaperclipJar --stacktrace
       - name: Rename jar
-        run: cp folia-server/build/libs/folia-paperclip-*.jar stolia-${{ github.sha }}.jar
+        run: cp folia-server/build/libs/folia-paperclip-*.jar storia-${{ github.sha }}.jar
       - name: Upload jar
         uses: actions/upload-artifact@v5
         with:
-          name: stolia-jar
-          path: stolia-*.jar
+          name: storia-jar
+          path: storia-*.jar

@@ -17,5 +17,5 @@ build
 /folia-checkstyle/build.gradle.kts
 
 .idea/
-/stolia-relay/build
-/stolia-relay/.gradle
+/storia-relay/build
+/storia-relay/.gradle

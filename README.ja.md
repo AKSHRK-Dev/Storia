@@ -1,6 +1,6 @@
 <div align=center>
-    <img src="./stolia.png" alt="Stolia logo" width="128">
-    <h1>Stolia</h1>
+    <img src="./storia.png" alt="Storia logo" width="128">
+    <h1>Storia</h1>
     <p><a href="https://github.com/PaperMC/Folia">Folia</a> をベースにした、大人数向けの高効率 Minecraft サーバーソフトウェア</p>
     <p><a href="./README.md">English</a> | <b>日本語</b></p>
 </div>
@@ -10,7 +10,7 @@
 - **リージョン単位のマルチスレッド（Folia 由来）**
   近くにあるチャンクを「リージョン」にまとめ、リージョンごとに並列で tick します。
   プレイヤーが広く散らばる大人数サーバー（SMP・スカイブロックなど）でよく伸びます。
-- **RAM ワールド（Stolia 独自）**
+- **RAM ワールド（Storia 独自）**
   起動時にワールドを RAM（`/dev/shm`）へ読み込み、サーバーは RAM 上のワールドを読み書きします。
   ディスク I/O がボトルネックにならなくなります。
   - 一定間隔で、変わったファイルだけをバックグラウンドでディスクへ書き戻します
@@ -18,11 +18,11 @@
   - `stop` のときは全部ディスクへ書き戻します
   - プロセスが強制終了しても、マシンが動いていれば RAM 上のデータは残ります。次の起動時にそれを検知してディスクへ復旧します
   - RAM が足りないときは、自動で通常どおりディスクから起動します
-- **高速なチャンク事前生成（Stolia 独自）**
-  `/stolia pregen` で、プレイヤーが行く前にチャンクを生成しておけます。
+- **高速なチャンク事前生成（Storia 独自）**
+  `/storia pregen` で、プレイヤーが行く前にチャンクを生成しておけます。
   生成中だけワーカースレッドを「コア数−1」本に増やし（Folia のデフォルトはコア数の約1/4）、終わったら元に戻します。
   進み具合は保存されるので、再起動しても続きから再開できます。
-- **1人ごとの予算（Stolia 独自）**
+- **1人ごとの予算（Storia 独自）**
   tick スレッドを、プレイヤーごとに公平に割り当てます。リージョン自身の tick 時間が長すぎるとき、
   または tick スレッドが混み合っていて、そのリージョンがいる人数分の取り分を超えて使っているときは、
   **そのリージョンにいる人だけ**描画距離を下げます。軽くなったら元に戻します。
@@ -32,15 +32,15 @@
   描画距離はシミュレーション距離までしか下げないので、`view-distance` を `simulation-distance` より
   大きくしておくと調整の余地ができます（例：12 / 8）。`lower-simulation-distance: true` にすると
   シミュレーション距離も下げます。
-- **エンティティの物理演算の高速化（Stolia 独自）**
+- **エンティティの物理演算の高速化（Storia 独自）**
   モブが密集したときの押し合い判定が約3倍速くなります。押す相手・順番・窒息ダメージ（乱数を含む）は
   バニラと完全に同じです。レッドストーンには手を加えていません。
-- **地形生成を別のマシンに任せる（Stolia 独自）**
-  2台目のマシンで Stolia を「ワーカー」として動かすと、メインサーバーは地形生成で一番重い部分
+- **地形生成を別のマシンに任せる（Storia 独自）**
+  2台目のマシンで Storia を「ワーカー」として動かすと、メインサーバーは地形生成で一番重い部分
   （ノイズ段階：地形の形・洞窟・帯水層）をそちらに任せます。結果は自分で生成した場合と同じです。
   ワーカーが混んでいる・遅い・落ちているときは、自動でメインサーバーが自分で生成します。
   [地形生成を別のマシンに任せる](#地形生成を別のマシンに任せる) を参照してください。
-- **ワールド生成の高速化（Stolia 独自）**
+- **ワールド生成の高速化（Storia 独自）**
   ノイズ計算とブロック数の数え方を最適化しています。同じシードなら**地形はバニラと完全に同じ**です
   （ノイズの変更は、元のコードと出力がビット単位で一致することを確認済み）。
 
@@ -49,28 +49,28 @@
 Java 25 以上が必要です。
 
 ```sh
-java -Xmx8G -jar stolia-26.2.jar nogui
+java -Xmx8G -jar storia-26.2.jar nogui
 ```
 
 [Releases](../../releases/latest) からダウンロードできます：
 
 | ファイル | 内容 |
 | --- | --- |
-| `stolia-<version>.jar` | Stolia サーバー本体 |
-| `stolia-worker-<version>.zip` | [Stolia Worker](packaging/worker/README.md)：別のマシンで地形生成を手伝う |
-| `stolia-relay-<version>.zip` | [Stolia Relay](packaging/relay/README.md)：複数のワーカーに仕事を配る |
-| `stolia-proxy-<version>.jar` | [Stolia Proxy](https://github.com/AKSHRK-Dev/StoliaProxy)：プレースホルダー 50 個入りの Velocity フォーク |
+| `storia-<version>.jar` | Storia サーバー本体 |
+| `storia-worker-<version>.zip` | [Storia Worker](packaging/worker/README.md)：別のマシンで地形生成を手伝う |
+| `storia-relay-<version>.zip` | [Storia Relay](packaging/relay/README.md)：複数のワーカーに仕事を配る |
+| `storia-proxy-<version>.jar` | [Storia Proxy](https://github.com/AKSHRK-Dev/StoriaProxy)：プレースホルダー 50 個入りの Velocity フォーク |
 
-開発版は [Actions](../../actions) の成果物（`stolia-jar`）からもダウンロードできます。
+開発版は [Actions](../../actions) の成果物（`storia-jar`）からもダウンロードできます。
 
-### 設定（`stolia.yml`）
+### 設定（`storia.yml`）
 
 初回起動時にサーバーのフォルダに作られます。
 
 ```yaml
 ram-world:
   enabled: true
-  ram-directory: /dev/shm/stolia
+  ram-directory: /dev/shm/storia
   sync-interval-seconds: 300   # 短くするほど安全、長くするほど効率的
   min-free-mb: 512             # RAM の空きがこれを下回りそうならディスクで起動
   delete-on-shutdown: true     # 正常終了時に RAM 上のコピーを削除する
@@ -98,13 +98,13 @@ player-budget:
 
 | コマンド | 説明 | 権限 |
 | --- | --- | --- |
-| `/stolia status` | RAM ワールドの状態（場所・使用量・最後に同期した時刻）を表示 | `stolia.command.stolia`（OP） |
-| `/stolia sync` | 今すぐ RAM ワールドをディスクへ書き戻す | `stolia.command.stolia`（OP） |
-| `/stolia pregen start <半径> [ワールド] [x z]` | スポーン（または x z）を中心に、半径（ブロック）の正方形を事前生成 | `stolia.command.stolia`（OP） |
-| `/stolia budget` | tick スレッドの使用率・ヒープ・各プレイヤーのリージョンの負荷と今の距離 | `stolia.command.stolia`（OP） |
-| `/stolia region` | 重いリージョン一覧（スレッド使用率・MSPT・TPS・人数・チャンク数） | `stolia.command.stolia`（OP） |
-| `/stolia offload` | ワーカーとの接続・任せたチャンク数・自分で生成した理由 | `stolia.command.stolia`（OP） |
-| `/stolia pregen stop` / `resume` / `status` | 停止（進み具合は保存）／再起動後に再開／進み具合を表示 | `stolia.command.stolia`（OP） |
+| `/storia status` | RAM ワールドの状態（場所・使用量・最後に同期した時刻）を表示 | `storia.command.storia`（OP） |
+| `/storia sync` | 今すぐ RAM ワールドをディスクへ書き戻す | `storia.command.storia`（OP） |
+| `/storia pregen start <半径> [ワールド] [x z]` | スポーン（または x z）を中心に、半径（ブロック）の正方形を事前生成 | `storia.command.storia`（OP） |
+| `/storia budget` | tick スレッドの使用率・ヒープ・各プレイヤーのリージョンの負荷と今の距離 | `storia.command.storia`（OP） |
+| `/storia region` | 重いリージョン一覧（スレッド使用率・MSPT・TPS・人数・チャンク数） | `storia.command.storia`（OP） |
+| `/storia offload` | ワーカーとの接続・任せたチャンク数・自分で生成した理由 | `storia.command.storia`（OP） |
+| `/storia pregen stop` / `resume` / `status` | 停止（進み具合は保存）／再起動後に再開／進み具合を表示 | `storia.command.storia`（OP） |
 
 ### チャンク生成の速さ
 
@@ -113,7 +113,7 @@ player-budget:
 | | 時間 | チャンク/秒 |
 | --- | --- | --- |
 | Folia のデフォルト（6コアでワーカー1本） | 3分21秒 | 18.5 |
-| Stolia の `/stolia pregen`（ワーカー5本） | 40秒 | 94 |
+| Storia の `/storia pregen`（ワーカー5本） | 40秒 | 94 |
 
 ### エンティティの物理演算の速さ
 
@@ -122,9 +122,9 @@ player-budget:
 | | MSPT |
 | --- | --- |
 | Folia | 750 |
-| Stolia | 252 |
+| Storia | 252 |
 
-実際のデータで検証済み：`-Dstolia.verifyPush=true` で起動すると、押し合いのたびにバニラの方法でも計算して比べます
+実際のデータで検証済み：`-Dstoria.verifyPush=true` で起動すると、押し合いのたびにバニラの方法でも計算して比べます
 （窒息ダメージあり・なしで計 50 万回、差分 0）。
 
 通常のプレイ中（プレイヤーが新しい場所を探索するとき）も、CPU に余裕があれば
@@ -137,7 +137,7 @@ player-budget:
   構造物・装飾・光                ◀── 地形のブロック ──   地形ノイズの計算
 ```
 
-1. サーバー②で、**同じワールドのコピー**（同じシード・データパック）を使って Stolia を起動し、`stolia.yml` を次のようにします：
+1. サーバー②で、**同じワールドのコピー**（同じシード・データパック）を使って Storia を起動し、`storia.yml` を次のようにします：
    ```yaml
    offload:
      mode: worker
@@ -152,7 +152,7 @@ player-budget:
      secret: 長くてランダムな文字列
      workers: ["192.168.0.20:25590"]   # 複数でも OK
    ```
-3. `/stolia offload` で、接続状態・任せたチャンク数・自分で生成した理由を確認できます。
+3. `/storia offload` で、接続状態・任せたチャンク数・自分で生成した理由を確認できます。
 
 - 接続時に両方のサーバーで同じ試験用チャンクを生成し、結果が完全に一致したディメンションだけを任せます。
   シード・データパック・ビルドが違う場合は、違う地形を作る代わりに接続を断ります。
@@ -160,10 +160,10 @@ player-budget:
   隣のチャンクに依存するか、50ms の tick 内に終わらせる必要があるためです。
 - 通信は**暗号化・認証されています**（合言葉から作った鍵で AES-256-GCM。合言葉そのものは送りません）。
   合言葉が違う相手は、最初のメッセージで接続を断ります。
-- ワーカーは Releases の **Stolia Worker** パックを使うのが簡単です（`-Dstolia.worker=true`：プレイヤー用のポートを
-  開かず、計算だけをします）。間に **Stolia Relay** を置くと、ワーカーは Relay につなぎに行くので、いつでも追加・削除
+- ワーカーは Releases の **Storia Worker** パックを使うのが簡単です（`-Dstoria.worker=true`：プレイヤー用のポートを
+  開かず、計算だけをします）。間に **Storia Relay** を置くと、ワーカーは Relay につなぎに行くので、いつでも追加・削除
   できます。サーバー側は `offload.workers` に Relay のアドレスを書くだけです。
-- サーバー①を `-Dstolia.verifyOffload=true` で起動すると、任せたチャンクを自分でも生成して比べます。
+- サーバー①を `-Dstoria.verifyOffload=true` で起動すると、任せたチャンクを自分でも生成して比べます。
 
 サーバー①に3コア、ワーカーに別の3コアを割り当てて 3,721 チャンクを事前生成した結果：
 
@@ -176,7 +176,7 @@ player-budget:
 
 ## プラグインの互換性
 
-Stolia は Folia と同じスレッドモデルなので、**Folia 対応のプラグインだけが動きます**
+Storia は Folia と同じスレッドモデルなので、**Folia 対応のプラグインだけが動きます**
 （`plugin.yml` に `folia-supported: true` があるもの）。
 `ServerBuildInfo#isBrandCompatible(papermc:folia)` も `true` を返すので、Folia かどうかを確認するプラグインでも動きます。
 
@@ -192,11 +192,11 @@ Stolia は Folia と同じスレッドモデルなので、**Folia 対応のプ�
 
 ### 変更の追加
 
-- Stolia 独自のクラス: `folia-server/src/main/java/dev/stolia/`
+- Storia 独自のクラス: `folia-server/src/main/java/dev/storia/`
 - Minecraft 側の変更: `folia-server/src/minecraft/java` でコミット → `./gradlew rebuildMinecraftFeaturePatches`
 - Paper 側の変更: `paper-server` でコミット → `./gradlew rebuildPaperServerFeaturePatches`
 
 ## ライセンス
 
 パッチは [PATCHES-LICENSE](./PATCHES-LICENSE) に従います。
-Stolia は [PaperMC/Folia](https://github.com/PaperMC/Folia)（および [Paper](https://github.com/PaperMC/Paper)）の派生プロジェクトです。上流の開発者に感謝します。
+Storia は [PaperMC/Folia](https://github.com/PaperMC/Folia)（および [Paper](https://github.com/PaperMC/Paper)）の派生プロジェクトです。上流の開発者に感謝します。

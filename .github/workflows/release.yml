@@ -18,16 +18,16 @@ jobs:
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
-      - name: Checkout Stolia
+      - name: Checkout Storia
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Checkout Stolia Proxy
+      - name: Checkout Storia Proxy
         uses: actions/checkout@v5
         with:
-          repository: AKSHRK-Dev/StoliaProxy
-          ref: stolia
-          path: stolia-proxy-src
+          repository: AKSHRK-Dev/StoriaProxy
+          ref: storia
+          path: storia-proxy-src
       - name: Set up JDK 25
         uses: actions/setup-java@v6
         with:
@@ -43,33 +43,33 @@ jobs:
           git config --global user.name "Github Actions"
           git config --global gc.auto 0
 
-      - name: Build Stolia server
+      - name: Build Storia server
         run: |
           ./gradlew applyAllPatches --stacktrace
           ./gradlew createPaperclipJar --stacktrace
-      - name: Build Stolia Relay
-        run: ./gradlew -p stolia-relay jar -PrelayVersion="${TAG#v}"
-      - name: Build Stolia Proxy
-        working-directory: stolia-proxy-src
+      - name: Build Storia Relay
+        run: ./gradlew -p storia-relay jar -PrelayVersion="${TAG#v}"
+      - name: Build Storia Proxy
+        working-directory: storia-proxy-src
         run: ./gradlew :velocity-proxy:shadowJar
 
       - name: Package
         run: |
           V="${TAG#v}"
           mkdir -p dist
-          cp folia-server/build/libs/folia-paperclip-*.jar "dist/stolia-$V.jar"
+          cp folia-server/build/libs/folia-paperclip-*.jar "dist/storia-$V.jar"
 
-          mkdir -p "pkg/stolia-worker-$V"
-          cp "dist/stolia-$V.jar" "pkg/stolia-worker-$V/stolia.jar"
-          cp packaging/worker/* "pkg/stolia-worker-$V/"
-          (cd pkg && zip -qr "../dist/stolia-worker-$V.zip" "stolia-worker-$V")
+          mkdir -p "pkg/storia-worker-$V"
+          cp "dist/storia-$V.jar" "pkg/storia-worker-$V/storia.jar"
+          cp packaging/worker/* "pkg/storia-worker-$V/"
+          (cd pkg && zip -qr "../dist/storia-worker-$V.zip" "storia-worker-$V")
 
-          mkdir -p "pkg/stolia-relay-$V"
-          cp "stolia-relay/build/libs/stolia-relay-$V.jar" "pkg/stolia-relay-$V/stolia-relay.jar"
-          cp packaging/relay/* "pkg/stolia-relay-$V/"
-          (cd pkg && zip -qr "../dist/stolia-relay-$V.zip" "stolia-relay-$V")
+          mkdir -p "pkg/storia-relay-$V"
+          cp "storia-relay/build/libs/storia-relay-$V.jar" "pkg/storia-relay-$V/storia-relay.jar"
+          cp packaging/relay/* "pkg/storia-relay-$V/"
+          (cd pkg && zip -qr "../dist/storia-relay-$V.zip" "storia-relay-$V")
 
-          cp stolia-proxy-src/proxy/build/libs/stolia-proxy-*.jar "dist/stolia-proxy-$V.jar"
+          cp storia-proxy-src/proxy/build/libs/storia-proxy-*.jar "dist/storia-proxy-$V.jar"
           ls -la dist
 
       - name: Write release notes
@@ -77,14 +77,14 @@ jobs:
           V="${TAG#v}"
           MC=$(grep '^mcVersion=' gradle.properties | cut -d= -f2)
           cat > notes.md <<NOTES
-          Stolia $V for Minecraft $MC (Java 25).
+          Storia $V for Minecraft $MC (Java 25).
 
           | File | What it is |
           | --- | --- |
-          | \`stolia-$V.jar\` | The Stolia server (Folia fork). Run \`java -jar stolia-$V.jar nogui\`. |
-          | \`stolia-worker-$V.zip\` | Stolia Worker: generates terrain for your server on another machine. See README.md inside. |
-          | \`stolia-relay-$V.zip\` | Stolia Relay: hands terrain work to any number of workers (Java 21+, no Minecraft files). |
-          | \`stolia-proxy-$V.jar\` | Stolia Proxy: Velocity fork with 50 built-in placeholders ([docs](https://github.com/AKSHRK-Dev/StoliaProxy)). |
+          | \`storia-$V.jar\` | The Storia server (Folia fork). Run \`java -jar storia-$V.jar nogui\`. |
+          | \`storia-worker-$V.zip\` | Storia Worker: generates terrain for your server on another machine. See README.md inside. |
+          | \`storia-relay-$V.zip\` | Storia Relay: hands terrain work to any number of workers (Java 21+, no Minecraft files). |
+          | \`storia-proxy-$V.jar\` | Storia Proxy: Velocity fork with 50 built-in placeholders ([docs](https://github.com/AKSHRK-Dev/StoriaProxy)). |
 
           All offload traffic is encrypted and authenticated with your shared secret.
           NOTES
@@ -97,5 +97,5 @@ jobs:
           if gh release view "$TAG" > /dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
           else
-            gh release create "$TAG" dist/* --title "Stolia ${TAG#v}" --notes-file notes.md --target "$GITHUB_SHA"
+            gh release create "$TAG" dist/* --title "Storia ${TAG#v}" --notes-file notes.md --target "$GITHUB_SHA"
           fi
