@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AKSHRK-Dev <311836316+AKSHRK-Dev@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 16:21:48 +0900
+Subject: [PATCH] Storia tick guard
+
+
+diff --git a/io/papermc/paper/threadedregions/TickRegions.java b/io/papermc/paper/threadedregions/TickRegions.java
+index a6ab9cb01f4f49f5f44b6ed324fa6d51139aabb6..f913223bd5535f93d1ec9fa4e50e09eb6bbd25a5 100644
+--- a/io/papermc/paper/threadedregions/TickRegions.java
++++ b/io/papermc/paper/threadedregions/TickRegions.java
+@@ -185,6 +185,7 @@ public final class TickRegions implements ThreadedRegionizer.RegionCallbacks<Tic
+         private static final AtomicLong ID_GENERATOR = new AtomicLong();
+         /** Never 0L, since 0L is reserved for global region. */
+         public final long id = ID_GENERATOR.incrementAndGet();
++        public final dev.storia.tickguard.TickGuard.State storiaTickGuard = new dev.storia.tickguard.TickGuard.State(); // Storia - tick guard
+ 
+         public final ThreadedRegionizer.ThreadedRegion<TickRegionData, TickRegionSectionData> region;
+         public final ServerLevel world;
+diff --git a/net/minecraft/server/level/ServerLevel.java b/net/minecraft/server/level/ServerLevel.java
+index 35ab432bbd59aba80a6eaca1769e6aa82c8a7e46..3f35a0b62e74580495dbb56d2a82139c197ddcb7 100644
+--- a/net/minecraft/server/level/ServerLevel.java
++++ b/net/minecraft/server/level/ServerLevel.java
+@@ -814,6 +814,7 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+ 
+     public void tick(BooleanSupplier haveTime, final io.papermc.paper.threadedregions.TickRegions.TickRegionData region) { // Folia - regionised ticking
+         final io.papermc.paper.threadedregions.RegionizedWorldData regionizedWorldData = this.getCurrentWorldData(); // Folia - regionised ticking
++        dev.storia.tickguard.TickGuard.beginTick(regionizedWorldData); // Storia - tick guard
+         final ca.spottedleaf.leafprofiler.RegionizedProfiler.Handle foliaProfiler = io.papermc.paper.threadedregions.TickRegionScheduler.getProfiler(); // Folia - profiler
+         ProfilerFiller profiler = Profiler.get();
+         regionizedWorldData.setHandlingTick(true); // Folia - regionised ticking
+@@ -965,6 +966,7 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+ 
+         this.debugSynchronizers.tick(this.server.debugSubscribers());
+         profiler.pop();
++        dev.storia.tickguard.TickGuard.endTick(this, regionizedWorldData); // Storia - tick guard
+     }
+ 
+     // Folia start - region threading
+diff --git a/net/minecraft/world/entity/Mob.java b/net/minecraft/world/entity/Mob.java
+index 3b1c3e84ab24b6e3a0e4d129b3617b393b6d6651..5745e071debe825bb8a657cf1c13843ceb525b2b 100644
+--- a/net/minecraft/world/entity/Mob.java
++++ b/net/minecraft/world/entity/Mob.java
+@@ -836,11 +836,17 @@ public abstract class Mob extends LivingEntity implements Targeting, EquipmentUs
+         }
+         // Paper end - Allow nerfed mobs to jump and float
+         ProfilerFiller profiler = Profiler.get();
++        // Storia start - tick guard: in an overloaded, crowded region some ticks only keep running goals,
++        // the current path and the movement controls going; sensing and (re)planning wait for the next full tick
++        final boolean storiaFullAi = dev.storia.tickguard.TickGuard.fullAiTick(this);
++        if (storiaFullAi) {
+         profiler.push("sensing");
+         this.sensing.tick();
+         profiler.pop();
++        }
+         int idBasedTickCount = this.tickCount + this.getId();
+-        if (idBasedTickCount % 2 != 0 && this.tickCount > 1) {
++        if (!storiaFullAi || (idBasedTickCount % 2 != 0 && this.tickCount > 1)) {
++        // Storia end - tick guard
+             profiler.push("targetSelector");
+             this.targetSelector.tickRunningGoals(false);
+             profiler.pop();
+@@ -860,6 +866,7 @@ public abstract class Mob extends LivingEntity implements Targeting, EquipmentUs
+         this.navigation.tick();
+         profiler.pop();
+         profiler.push("mob tick");
++        if (storiaFullAi || !dev.storia.tickguard.TickGuard.usesBrain(this)) // Storia - tick guard: brains think on full ticks only
+         this.customServerAiStep((ServerLevel)this.level());
+         profiler.pop();
+         profiler.push("controls");
+diff --git a/net/minecraft/world/entity/ai/Brain.java b/net/minecraft/world/entity/ai/Brain.java
+index e097bc1268b4050e3948413c52dea69950858458..3978973d8c69681acb0a02df94153acc40387dc6 100644
+--- a/net/minecraft/world/entity/ai/Brain.java
++++ b/net/minecraft/world/entity/ai/Brain.java
+@@ -38,6 +38,11 @@ import org.jspecify.annotations.Nullable;
+ public class Brain<E extends LivingEntity> {
+     private static final int SCHEDULE_UPDATE_DELAY = 20;
+     private final Map<MemoryModuleType<?>, MemorySlot<?>> memories = Maps.newHashMap();
++    // Storia start - tick guard
++    public boolean storia$hasMemories() {
++        return !this.memories.isEmpty();
++    }
++    // Storia end - tick guard
+     private final Map<SensorType<? extends Sensor<? super E>>, Sensor<? super E>> sensors = Maps.newLinkedHashMap();
+     private final Map<Integer, Map<Activity, Set<BehaviorControl<? super E>>>> availableBehaviorsByPriority = Maps.newTreeMap();
+     private @Nullable EnvironmentAttribute<Activity> schedule;

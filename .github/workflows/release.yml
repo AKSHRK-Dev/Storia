@@ -78,6 +78,7 @@ jobs:
           MC=$(grep '^mcVersion=' gradle.properties | cut -d= -f2)
           cat > notes.md <<NOTES
           Storia $V: Minecraft $MC, Java 25.
+          $(case "$V" in *beta*) printf '\n**Beta:** new features that are still being tested. Back up your server before trying it.\n' ;; esac)
 
           | File | What it is |
           | --- | --- |
@@ -97,5 +98,7 @@ jobs:
           if gh release view "$TAG" > /dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
           else
-            gh release create "$TAG" dist/* --title "Storia ${TAG#v}" --notes-file notes.md --target "$GITHUB_SHA"
+            PRE=""
+            case "$TAG" in *alpha*|*beta*|*rc*) PRE="--prerelease" ;; esac
+            gh release create "$TAG" dist/* --title "Storia ${TAG#v}" --notes-file notes.md --target "$GITHUB_SHA" $PRE
           fi

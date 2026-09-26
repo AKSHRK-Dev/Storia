@@ -185,7 +185,7 @@ public final class StoriaCommand extends Command {
         }
         sender.sendMessage(text("Player budget (checked every " + budget.intervalSeconds() + "s)", NamedTextColor.AQUA));
         sender.sendMessage(line("Tick threads busy", text(Math.round(budget.poolUtilisation() * 100) + "%"
-            + (budget.poolSaturated() ? " (saturated: heavy regions are limited)" : " (headroom: nothing limited for CPU)"),
+            + (budget.poolSaturated() ? " (saturated: busy regions thin out crowds more)" : " (headroom)"),
             budget.poolSaturated() ? NamedTextColor.RED : NamedTextColor.GREEN)));
         sender.sendMessage(line("Share per player", text(String.format(Locale.ROOT, "%.0f%% of a thread", budget.sharePerPlayer() * 100), NamedTextColor.WHITE)));
         sender.sendMessage(line("Heap after GC", text(Math.round(budget.heapFraction() * 100) + "%"
@@ -202,6 +202,7 @@ public final class StoriaCommand extends Command {
             sender.sendMessage(text(" " + player.getName() + ": ", NamedTextColor.WHITE)
                 .append(text(String.format(Locale.ROOT, "region %.1f MSPT, %.1f TPS, %.0f%% thread, %d player(s)",
                     state.regionMspt(), state.regionTps(), state.regionUtilisation() * 100, state.regionPlayers()), NamedTextColor.GRAY))
+                .append(text(String.format(Locale.ROOT, " | %.0f blocks/s", state.speed()), NamedTextColor.GRAY))
                 .append(text(" | sim " + sim + ", view " + view, state.cpuLevel() > 0 ? NamedTextColor.YELLOW : NamedTextColor.GREEN)));
         }
     }
@@ -212,7 +213,7 @@ public final class StoriaCommand extends Command {
             ((CraftWorld) world).getHandle().regioniser.computeForAllRegions(regions::add);
         }
         final long now = System.nanoTime();
-        record Row(String where, double util, double mspt, double tps, int players, int chunks) {}
+        record Row(String where, double util, double mspt, double tps, int players, int chunks, dev.storia.tickguard.TickGuard.State guard) {}
         final List<Row> rows = new java.util.ArrayList<>();
         for (final var region : regions) {
             final ca.spottedleaf.common.time.TickData.TickReportData report = region.getData().getRegionSchedulingHandle().getTickReport5s(now);
@@ -223,7 +224,7 @@ public final class StoriaCommand extends Command {
             final var stats = region.getData().getRegionStats();
             rows.add(new Row(region.regioniser.world.getWorld().getName() + " " + ((center.x() << 4) | 7) + ", " + ((center.z() << 4) | 7),
                 report.utilisation(), report.timePerTickData().segmentAll().average() / 1.0E6, report.tpsData().segmentAll().average(),
-                stats.getPlayerCount(), stats.getChunkCount()));
+                stats.getPlayerCount(), stats.getChunkCount(), region.getData().storiaTickGuard));
         }
         rows.sort((a, b) -> Double.compare(b.util(), a.util()));
         sender.sendMessage(text(rows.size() + " region(s), busiest first (last 5s):", NamedTextColor.AQUA));
@@ -232,6 +233,15 @@ public final class StoriaCommand extends Command {
                 .append(text(String.format(Locale.ROOT, "%.0f%% thread, %.1f MSPT, %.1f TPS, %d player(s), %d chunks",
                     row.util() * 100, row.mspt(), row.tps(), row.players(), row.chunks()),
                     row.tps() < 19.5 ? NamedTextColor.RED : NamedTextColor.GRAY)));
+            final dev.storia.tickguard.TickGuard.State guard = row.guard();
+            if (guard.level() > 0) {
+                sender.sendMessage(text(String.format(Locale.ROOT, "   tick guard: crowded mobs re-plan every %d ticks (%d AI updates skipped/s)",
+                    1 << guard.level(), guard.skippedPerSecond()), NamedTextColor.YELLOW));
+            }
+            for (final dev.storia.tickguard.TickGuard.Crowd crowd : guard.topCrowds()) {
+                sender.sendMessage(text(String.format(Locale.ROOT, "   crowd at %d, %d: %d mobs, mostly %s",
+                    (crowd.chunkX() << 4) + 8, (crowd.chunkZ() << 4) + 8, crowd.mobs(), crowd.mainType()), NamedTextColor.GRAY));
+            }
         }
     }
 

@@ -27,10 +27,12 @@ import org.bukkit.entity.Player;
 import org.slf4j.Logger;
 
 /**
- * Gives every player a fair share of the server and shrinks the view distance (and, only if
- * {@code lower-simulation-distance} is enabled, the simulation distance) of players whose region uses
- * more than that, so one heavy base cannot slow everyone else down. By default ticking is never
- * reduced, so redstone and farms keep running.
+ * Gives every player a fair share of the server. Tick load in a region (farms, crowds) is handled by
+ * {@link dev.storia.tickguard.TickGuard}, which thins out the crowd itself; this class only limits the
+ * players who add load by themselves: when their region is over budget, players who are moving fast
+ * (flying with elytra, riding, ...) and so make the server load and send many chunks get a shorter view
+ * distance (and, only if {@code lower-simulation-distance} is enabled, simulation distance) until they
+ * slow down or the region recovers. Players who merely stand or walk in a busy place are never limited.
  *
  * <p>Region tick threads are a shared pool: when there are more busy regions than threads, a region
  * that ticks slowly delays the others. Each player's share of the pool is
@@ -60,6 +62,7 @@ public final class PlayerBudget {
     private final int minViewDistance;
     private final double memoryHigh;
     private final double memoryLow;
+    private final double fastMoverSpeed;
 
     private final Map<UUID, PlayerState> states = new ConcurrentHashMap<>();
     private volatile int memoryLevel;
@@ -78,6 +81,12 @@ public final class PlayerBudget {
         volatile double regionUtilisation;
         volatile int regionPlayers;
         volatile boolean overBudget;
+        volatile double speed;
+        double lastX = Double.NaN;
+        double lastZ;
+        long lastNanos;
+        net.minecraft.world.level.Level lastWorld;
+        int fastStreak;
 
         public int cpuLevel() { return this.cpuLevel; }
         public int appliedSimulation() { return this.appliedSimulation; }
@@ -87,6 +96,7 @@ public final class PlayerBudget {
         public double regionUtilisation() { return this.regionUtilisation; }
         public int regionPlayers() { return this.regionPlayers; }
         public boolean overBudget() { return this.overBudget; }
+        public double speed() { return this.speed; }
     }
 
     private PlayerBudget(final YamlConfiguration config) {
@@ -99,6 +109,7 @@ public final class PlayerBudget {
         this.minViewDistance = Math.max(2, config.getInt("player-budget.min-view-distance", 6));
         this.memoryHigh = config.getDouble("player-budget.memory-high-percent", 85) / 100.0;
         this.memoryLow = config.getDouble("player-budget.memory-low-percent", 70) / 100.0;
+        this.fastMoverSpeed = Math.max(1.0, config.getDouble("player-budget.fast-mover-speed", 12.0));
     }
 
     public static PlayerBudget get() {
@@ -224,6 +235,24 @@ public final class PlayerBudget {
         final boolean hogging = this.poolSaturated && state.regionUtilisation > share;
         state.overBudget = lagging || hogging;
 
+        // Horizontal speed since the last check: fast movers make the server load, generate and send chunks.
+        final long nowNanos = System.nanoTime();
+        if (!Double.isNaN(state.lastX) && player.level() == state.lastWorld) {
+            final double seconds = Math.max(0.05, (nowNanos - state.lastNanos) / 1.0E9);
+            final double dx = player.getX() - state.lastX;
+            final double dz = player.getZ() - state.lastZ;
+            state.speed = Math.sqrt(dx * dx + dz * dz) / seconds;
+        } else {
+            state.speed = 0.0;
+        }
+        state.lastX = player.getX();
+        state.lastZ = player.getZ();
+        state.lastNanos = nowNanos;
+        state.lastWorld = player.level();
+        // Two checks in a row, so a single teleport does not count as moving fast.
+        state.fastStreak = state.speed >= this.fastMoverSpeed ? state.fastStreak + 1 : 0;
+        final boolean fastMover = state.fastStreak >= 2;
+
         final ServerLevel level = (ServerLevel) player.level();
         final int worldSimulation = level.getWorld().getSimulationDistance();
         final int worldView = level.getWorld().getViewDistance();
@@ -233,11 +262,11 @@ public final class PlayerBudget {
         final int viewFloor = Math.min(worldView, this.lowerSimulationDistance ? this.minViewDistance : Math.max(this.minViewDistance, worldSimulation));
         final int maxCpuLevel = (worldSimulation - simulationFloor) + Math.max(0, worldView - viewFloor);
 
-        if (state.overBudget) {
+        if (state.overBudget && fastMover) {
             state.cpuLevel = Math.min(maxCpuLevel, state.cpuLevel + 1);
-        } else if (state.cpuLevel > 0
-            && state.regionMspt < this.maxRegionMspt * this.recoverFraction
-            && !(this.poolSaturated && state.regionUtilisation > share * this.recoverFraction)) {
+        } else if (state.cpuLevel > 0 && (!fastMover
+            || (state.regionMspt < this.maxRegionMspt * this.recoverFraction
+                && !(this.poolSaturated && state.regionUtilisation > share * this.recoverFraction)))) {
             state.cpuLevel--;
         }
 
@@ -258,6 +287,27 @@ public final class PlayerBudget {
             io.papermc.paper.FeatureHooks.setViewDistance(player, newView);
             state.appliedView = newView;
         }
+    }
+
+    /**
+     * Whether a region uses more than its players' share of saturated tick threads. The tick guard then
+     * aims lower in that region, so busy regions cannot starve everyone else. Safe to call from any thread.
+     */
+    public static boolean regionHogging(final TickRegions.TickRegionData region) {
+        final PlayerBudget budget = instance;
+        if (budget == null || !budget.poolSaturated) {
+            return false;
+        }
+        final TickData.TickReportData report = region.getRegionSchedulingHandle().getTickReport5s(System.nanoTime());
+        if (report == null) {
+            return false;
+        }
+        final int players = Math.max(1, region.getRegionStats().getPlayerCount());
+        return report.utilisation() > budget.sharePerPlayer * players;
+    }
+
+    public double fastMoverSpeed() {
+        return this.fastMoverSpeed;
     }
 
     public PlayerState state(final UUID uuid) {

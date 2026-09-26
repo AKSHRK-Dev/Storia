@@ -269,14 +269,19 @@ public final class RamWorld {
             "pregen: /storia pregen. worker-threads -1 = CPU cores - 1 while pregenerating",
             "  (restored afterwards); max-in-flight -1 = worker-threads * 16.",
             "",
-            "player-budget: gives each player a fair share of the tick threads. When a region's own tick",
-            "  time passes max-region-mspt, or the tick threads are saturated and a region uses more than its",
-            "  players' share, those players' view distance is lowered one step per check (never below",
-            "  the simulation distance, so redstone and farms keep running) and raised back once the region",
-            "  recovers. lower-simulation-distance: true also lowers simulation distance first (more CPU",
-            "  saved, but machines far from the player stop). When the heap after GC passes",
-            "  memory-high-percent, everyone's view distance is lowered. Nothing is limited while the",
-            "  server has headroom.",
+            "tick-guard: keeps a crowded region under target-mspt without slowing down the players in it.",
+            "  When a region's tick time passes target-mspt, mobs in chunks with crowd-threshold or more mobs",
+            "  re-plan (sensing, target and goal selection, brains) only every 2nd, 4th, ... tick, up to",
+            "  1/2^max-level. They still move, path, collide and fall every tick; blocks, redstone and hoppers",
+            "  are never touched. Mobs within player-radius blocks of a player, mobs fighting a player, pets",
+            "  and bosses always think every tick. Back to normal as soon as the region has headroom.",
+            "",
+            "player-budget: only limits players who add load by themselves. When their region is over",
+            "  max-region-mspt, or uses more than its players' share of saturated tick threads, players moving",
+            "  faster than fast-mover-speed blocks/s (elytra, ...) get a shorter view distance (never below the",
+            "  simulation distance) until they slow down or the region recovers. Players who stand or walk",
+            "  in a busy place are never limited. lower-simulation-distance: true also lowers their simulation",
+            "  distance. When the heap after GC passes memory-high-percent, everyone's view distance is lowered.",
             "",
             "offload: generate terrain noise on other machines. On the main server set mode: client and",
             "  list workers (host:port); on each helper machine run Storia with a copy of the same world",
@@ -294,6 +299,11 @@ public final class RamWorld {
         config.addDefault("ram-world.delete-on-shutdown", true);
         config.addDefault("pregen.worker-threads", -1);
         config.addDefault("pregen.max-in-flight", -1);
+        config.addDefault("tick-guard.enabled", true);
+        config.addDefault("tick-guard.target-mspt", 40.0);
+        config.addDefault("tick-guard.crowd-threshold", 16);
+        config.addDefault("tick-guard.player-radius", 8.0);
+        config.addDefault("tick-guard.max-level", 3);
         config.addDefault("player-budget.enabled", true);
         config.addDefault("player-budget.check-interval-ticks", 100);
         config.addDefault("player-budget.max-region-mspt", 45.0);
@@ -304,6 +314,7 @@ public final class RamWorld {
         config.addDefault("player-budget.min-view-distance", 6);
         config.addDefault("player-budget.memory-high-percent", 85);
         config.addDefault("player-budget.memory-low-percent", 70);
+        config.addDefault("player-budget.fast-mover-speed", 12.0);
         config.addDefault("offload.mode", "off");
         config.addDefault("offload.secret", "");
         config.addDefault("offload.workers", java.util.List.of("127.0.0.1:25590"));

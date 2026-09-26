@@ -22,15 +22,18 @@
   `/storia pregen` generates chunks ahead of time so players never wait for terrain.
   While it runs, the chunk worker pool is raised to all cores but one (Folia's default is only
   about a quarter of the cores), then restored. Progress survives restarts.
+- **Tick guard (Storia)**
+  A crowded spot such as spawn stays smooth for the people in it. When a region's tick time passes its target
+  (40 ms), mobs in crowded chunks (16+ mobs) re-plan only every 2nd, 4th or 8th tick; they still move, path,
+  collide, fall and ride water every tick. Blocks, redstone and hoppers are never touched, and mobs near a player,
+  fighting a player, pets and bosses always think every tick. On a test spawn with 1,400 mobs the region went from
+  50-55 ms to 32-35 ms per tick (TPS 20) and the players standing nearby were not limited at all.
+  `/storia region` lists the crowded chunks so you can find the farm.
 - **Per-player budget (Storia)**
-  Every player gets a fair share of the region tick threads. If a region's own tick time is too high,
-  or the tick threads are saturated and a region uses more than its players' share, only the players
-  in that region get a lower view distance; it is restored once the region recovers. Players in other
-  regions are never limited because of someone else's lag, and nothing is limited while the server has
-  headroom. When the heap is nearly full after GC, view distance is lowered for everyone.
-  **Simulation distance is not touched by default, so redstone and farms keep running**; view distance
-  is only lowered down to the simulation distance, so set `view-distance` above `simulation-distance`
-  to give it room (e.g. 12 / 8). `lower-simulation-distance: true` also lowers simulation distance.
+  Only players who add load themselves are limited: when their region is over budget, players moving faster than
+  12 blocks/s (elytra, ...) get a shorter view distance until they slow down. Players who stand, build or walk in
+  a busy place are never limited. **Simulation distance is not touched by default, so redstone and farms keep
+  running.** When the heap is nearly full after GC, view distance is lowered for everyone.
 - **Faster entity physics (Storia)**
   Entity pushing (the cost of mobs crammed together) is about 3x faster with identical results:
   the same entities are pushed in the same order, and cramming damage and its random roll are unchanged.
@@ -80,6 +83,12 @@ ram-world:
 pregen:
   worker-threads: -1           # -1 = CPU cores - 1 while pregenerating
   max-in-flight: -1            # -1 = worker-threads * 16 chunks queued at once
+tick-guard:
+  enabled: true
+  target-mspt: 40.0            # keep each region below this (a tick has 50 ms)
+  crowd-threshold: 16          # mobs per chunk that count as a crowd
+  player-radius: 8.0           # mobs this close to a player always think every tick
+  max-level: 3                 # thin out down to every 8th tick
 player-budget:
   enabled: true
   check-interval-ticks: 100    # how often each player is checked
@@ -91,6 +100,7 @@ player-budget:
   min-view-distance: 6
   memory-high-percent: 85      # heap after GC above this lowers everyone's view distance
   memory-low-percent: 70
+  fast-mover-speed: 12.0       # only players faster than this (blocks/s) are limited
 ```
 
 > [!WARNING]
@@ -104,8 +114,8 @@ player-budget:
 | `/storia status` | Show the RAM world status (paths, usage, last sync) | `storia.command.storia` (op) |
 | `/storia sync` | Write the RAM world to disk now | `storia.command.storia` (op) |
 | `/storia pregen start <radius> [world] [x z]` | Pregenerate a square of `radius` blocks around spawn (or x z) | `storia.command.storia` (op) |
-| `/storia budget` | Tick thread usage, heap, and each player's region load and current distances | `storia.command.storia` (op) |
-| `/storia region` | Busiest regions: thread usage, MSPT, TPS, players, chunks | `storia.command.storia` (op) |
+| `/storia budget` | Tick thread usage, heap, and each player's region load, speed and current distances | `storia.command.storia` (op) |
+| `/storia region` | Busiest regions: thread usage, MSPT, TPS, players, chunks, tick guard state and crowded chunks | `storia.command.storia` (op) |
 | `/storia offload` | Offload connections, chunks offloaded, reasons chunks were generated locally | `storia.command.storia` (op) |
 | `/storia pregen stop` / `resume` / `status` | Stop (progress is saved), resume after a restart, show progress | `storia.command.storia` (op) |
 
