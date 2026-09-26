@@ -191,6 +191,8 @@ public final class StoriaRelay {
                 this.runWorker(new Worker(channel, hello.threads(), hello.probes()));
             } else if (hello.role() == Messages.ROLE_SERVER) {
                 this.runServer(new Server(channel, hello.probes()));
+            } else if (hello.role() == dev.storia.cluster.protocol.ClusterProtocol.ROLE_PROXY && this.cluster != null) {
+                this.cluster.serveProxy(channel);
             } else if (hello.role() == dev.storia.cluster.protocol.ClusterProtocol.ROLE_NODE) {
                 if (this.cluster == null) {
                     channel.send(Messages.welcome(new Messages.Welcome(false, "cluster mode is off on this relay (cluster=true in relay.properties)")));

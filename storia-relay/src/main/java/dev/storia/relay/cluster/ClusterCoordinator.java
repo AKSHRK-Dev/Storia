@@ -57,6 +57,18 @@ public final class ClusterCoordinator {
 
     private record Released(String node, long at) {}
 
+    // ---- phase 2: placement and player transfers ----
+    /** Which node holds each player's data (only it may write it). */
+    private final Map<String, String> playerHolder = new ConcurrentHashMap<>();
+    /** Last known position of each player. */
+    private final Map<String, ClusterProtocol.PlayerPos> lastPos = new ConcurrentHashMap<>();
+    private final Map<String, Transfer> transfers = new ConcurrentHashMap<>();
+    private final java.util.Set<SecureChannel> proxies = ConcurrentHashMap.newKeySet();
+    private final AtomicLong moves = new AtomicLong();
+    private volatile long lastBalance = System.currentTimeMillis();
+
+    private record Transfer(String uuid, String from, String to, long started, String why) {}
+
     public ClusterCoordinator(final Path world, final Consumer<String> log) throws IOException {
         this.world = world;
         Files.createDirectories(world);
@@ -67,6 +79,9 @@ public final class ClusterCoordinator {
         final Thread reaper = new Thread(this::reapLoop, "cluster heartbeats");
         reaper.setDaemon(true);
         reaper.start();
+        final Thread placement = new Thread(this::placementLoop, "cluster placement");
+        placement.setDaemon(true);
+        placement.start();
     }
 
     /** A connected node. */
@@ -76,6 +91,7 @@ public final class ClusterCoordinator {
         final SecureChannel channel;
         volatile long lastHeartbeat = System.currentTimeMillis();
         volatile ClusterProtocol.Heartbeat lastStats = new ClusterProtocol.Heartbeat(0, 0, 0);
+        volatile ClusterProtocol.Active active = new ClusterProtocol.Active(Map.of(), List.of());
 
         Node(final String name, final int index, final SecureChannel channel) {
             this.name = name;
@@ -162,6 +178,9 @@ public final class ClusterCoordinator {
             }
             case ClusterProtocol.OP_PLAYER_READ -> {
                 final ClusterProtocol.Player player = ClusterProtocol.readPlayer(request.body());
+                if (player.kind().equals("data")) {
+                    this.playerHolder.put(player.uuid(), node.name);
+                }
                 final Path file = this.playerFile(player);
                 yield Files.exists(file)
                     ? new ClusterProtocol.Response(id, ClusterProtocol.OK, Files.readAllBytes(file))
@@ -169,6 +188,11 @@ public final class ClusterCoordinator {
             }
             case ClusterProtocol.OP_PLAYER_WRITE -> {
                 final ClusterProtocol.Player player = ClusterProtocol.readPlayer(request.body());
+                final String holder = this.playerHolder.get(player.uuid());
+                if (holder != null && !holder.equals(node.name)) {
+                    // the player has moved on; this is a late save from the old node
+                    yield new ClusterProtocol.Response(id, ClusterProtocol.DENIED, ClusterProtocol.string(holder));
+                }
                 final Path file = this.playerFile(player);
                 Files.createDirectories(file.getParent());
                 final Path temp = file.resolveSibling(file.getFileName() + ".tmp");
@@ -179,6 +203,24 @@ public final class ClusterCoordinator {
             case ClusterProtocol.OP_HEARTBEAT -> {
                 node.lastHeartbeat = System.currentTimeMillis();
                 node.lastStats = ClusterProtocol.readHeartbeat(request.body());
+                yield new ClusterProtocol.Response(id, ClusterProtocol.OK, null);
+            }
+            case ClusterProtocol.OP_ACTIVE -> {
+                node.active = ClusterProtocol.readActive(request.body());
+                for (final ClusterProtocol.PlayerPos pos : node.active.players()) {
+                    this.lastPos.put(pos.uuid(), pos);
+                }
+                yield new ClusterProtocol.Response(id, ClusterProtocol.OK, null);
+            }
+            case ClusterProtocol.OP_TRANSFER_READY -> {
+                final String uuid = ClusterProtocol.readString(request.body());
+                final Transfer transfer = this.transfers.get(uuid);
+                if (transfer != null && transfer.from().equals(node.name)) {
+                    this.playerHolder.put(uuid, transfer.to());
+                    this.pushProxies(ClusterProtocol.PUSH_MOVE, ClusterProtocol.move(uuid, transfer.to()));
+                    this.moves.incrementAndGet();
+                    this.log.accept("Moving player " + uuid + " from " + transfer.from() + " to " + transfer.to() + " (" + transfer.why() + ")");
+                }
                 yield new ClusterProtocol.Response(id, ClusterProtocol.OK, null);
             }
             case ClusterProtocol.OP_STATUS -> new ClusterProtocol.Response(id, ClusterProtocol.OK, ClusterProtocol.string(String.join("\n", this.statusLines())));
@@ -355,10 +397,208 @@ public final class ClusterCoordinator {
         this.log.accept("Node " + node.name + " left the cluster (" + why + "); freed " + freed + " cell(s)");
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // Proxies
+    // ---------------------------------------------------------------------------------------------
+
+    /** Serves a Storia Proxy connection: login routing requests; receives PUSH_MOVE. */
+    public void serveProxy(final SecureChannel channel) throws IOException {
+        channel.send(Messages.welcome(new Messages.Welcome(true, "proxy")));
+        this.proxies.add(channel);
+        this.log.accept("Storia Proxy " + channel.remoteAddress() + " connected to the cluster");
+        try {
+            while (true) {
+                final byte[] message = channel.receive();
+                if (ClusterProtocol.type(message) != ClusterProtocol.REQUEST) {
+                    continue;
+                }
+                final ClusterProtocol.Request request = ClusterProtocol.readRequest(message);
+                ClusterProtocol.Response response;
+                if (request.op() == ClusterProtocol.OP_ROUTE) {
+                    final String node = this.route(ClusterProtocol.readString(request.body()));
+                    response = node == null
+                        ? new ClusterProtocol.Response(request.id(), ClusterProtocol.NOT_FOUND, null)
+                        : new ClusterProtocol.Response(request.id(), ClusterProtocol.OK, ClusterProtocol.string(node));
+                } else if (request.op() == ClusterProtocol.OP_STATUS) {
+                    response = new ClusterProtocol.Response(request.id(), ClusterProtocol.OK, ClusterProtocol.string(String.join("\n", this.statusLines())));
+                } else {
+                    response = new ClusterProtocol.Response(request.id(), ClusterProtocol.ERROR, ClusterProtocol.string("unsupported"));
+                }
+                channel.send(ClusterProtocol.response(response));
+            }
+        } finally {
+            this.proxies.remove(channel);
+            this.log.accept("Storia Proxy " + channel.remoteAddress() + " left the cluster");
+        }
+    }
+
+    private void pushProxies(final byte op, final byte[] body) {
+        final byte[] message = ClusterProtocol.push(new ClusterProtocol.Push(op, body));
+        for (final SecureChannel proxy : this.proxies) {
+            try {
+                proxy.send(message);
+            } catch (final IOException ignored) {
+                // gone; removed by its serve loop
+            }
+        }
+    }
+
+    private void pushNode(final String name, final byte op, final byte[] body) {
+        final Node node = this.nodes.get(name);
+        if (node != null) {
+            try {
+                node.channel.send(ClusterProtocol.push(new ClusterProtocol.Push(op, body)));
+            } catch (final IOException ignored) {
+                // gone
+            }
+        }
+    }
+
+    /** The node a joining player should go to: a pending move, the owner of their last position, or the least busy node. */
+    String route(final String uuid) {
+        final Transfer transfer = this.transfers.get(uuid);
+        if (transfer != null && this.nodes.containsKey(transfer.to())) {
+            return transfer.to();
+        }
+        final ClusterProtocol.PlayerPos pos = this.lastPos.get(uuid);
+        if (pos != null) {
+            final String owner = this.owners.get(Cell.of(pos.dimension(), pos.chunkX(), pos.chunkZ()));
+            if (owner != null && this.nodes.containsKey(owner)) {
+                return owner;
+            }
+        }
+        return this.nodes.values().stream()
+            .min(java.util.Comparator.comparingInt((Node n) -> n.lastStats.players()).thenComparing(n -> n.name))
+            .map(n -> n.name).orElse(null);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Placement: one cluster region, one node
+    // ---------------------------------------------------------------------------------------------
+
+    private void placementLoop() {
+        while (true) {
+            try {
+                Thread.sleep(1000L);
+                this.place();
+            } catch (final InterruptedException ex) {
+                return;
+            } catch (final Exception ex) {
+                this.log.accept("Cluster placement failed: " + ex);
+            }
+        }
+    }
+
+    /** A connected group of active cells and, per node, how many players it has in it. */
+    private record Component(java.util.Set<Cell> cells, Map<String, Integer> players) {
+        int total() {
+            return this.players.values().stream().mapToInt(Integer::intValue).sum();
+        }
+    }
+
+    private void place() {
+        final long now = System.currentTimeMillis();
+        this.transfers.values().removeIf(t -> now - t.started() > 15_000L);
+        // cell -> node -> players
+        final Map<Cell, Map<String, Integer>> activity = new java.util.HashMap<>();
+        for (final Node node : this.nodes.values()) {
+            for (final var entry : node.active.cells().entrySet()) {
+                activity.computeIfAbsent(entry.getKey(), c -> new java.util.HashMap<>()).merge(node.name, entry.getValue(), Integer::sum);
+            }
+        }
+        final List<Component> components = new ArrayList<>();
+        final java.util.Set<Cell> seen = new java.util.HashSet<>();
+        for (final Cell start : activity.keySet()) {
+            if (!seen.add(start)) {
+                continue;
+            }
+            final java.util.Set<Cell> cells = new java.util.HashSet<>();
+            final Map<String, Integer> players = new java.util.HashMap<>();
+            final java.util.ArrayDeque<Cell> queue = new java.util.ArrayDeque<>(List.of(start));
+            while (!queue.isEmpty()) {
+                final Cell cell = queue.poll();
+                cells.add(cell);
+                activity.getOrDefault(cell, Map.of()).forEach((n, p) -> players.merge(n, p, Integer::sum));
+                final List<Cell> next = new ArrayList<>(this.links.getOrDefault(cell, java.util.Set.of()));
+                for (int dx = -1; dx <= 1; ++dx) {
+                    for (int dz = -1; dz <= 1; ++dz) {
+                        next.add(new Cell(cell.dimension(), cell.x() + dx, cell.z() + dz));
+                    }
+                }
+                for (final Cell neighbour : next) {
+                    if (activity.containsKey(neighbour) && seen.add(neighbour)) {
+                        queue.add(neighbour);
+                    }
+                }
+            }
+            components.add(new Component(cells, players));
+        }
+        // 1. merge: a component active on several nodes goes to the node with most players there
+        for (final Component component : components) {
+            if (component.players().size() < 2) {
+                continue;
+            }
+            final String target = component.players().entrySet().stream()
+                .max(java.util.Comparator.<Map.Entry<String, Integer>>comparingInt(Map.Entry::getValue)
+                    .thenComparing(e -> -this.load(e.getKey())).thenComparing(Map.Entry::getKey, java.util.Comparator.reverseOrder()))
+                .get().getKey();
+            this.moveComponent(component, target, "areas met");
+        }
+        // 2. balance: every 10 s, move one whole component from the busiest to the quietest node
+        if (now - this.lastBalance < 10_000L || !this.transfers.isEmpty() || this.nodes.size() < 2) {
+            return;
+        }
+        this.lastBalance = now;
+        final Map<String, Integer> totals = new java.util.HashMap<>();
+        this.nodes.keySet().forEach(n -> totals.put(n, 0));
+        for (final Component component : components) {
+            component.players().forEach((n, p) -> totals.merge(n, p, Integer::sum));
+        }
+        final String heavy = totals.entrySet().stream().max(Map.Entry.comparingByValue()).get().getKey();
+        final String light = totals.entrySet().stream().min(Map.Entry.comparingByValue()).get().getKey();
+        final int gap = totals.get(heavy) - totals.get(light);
+        if (gap < 2) {
+            return;
+        }
+        components.stream()
+            .filter(c -> c.players().size() == 1 && c.players().containsKey(heavy) && c.total() > 0 && c.total() * 2 <= gap)
+            .min(java.util.Comparator.comparingInt(Component::total))
+            .ifPresent(c -> this.moveComponent(c, light, "balancing " + heavy + " -> " + light));
+    }
+
+    private double load(final String node) {
+        final Node n = this.nodes.get(node);
+        return n == null ? Double.MAX_VALUE : n.lastStats.players();
+    }
+
+    /** Moves every player in the component to {@code target} and asks the other nodes to let go of its cells. */
+    private void moveComponent(final Component component, final String target, final String why) {
+        for (final Node node : this.nodes.values()) {
+            if (node.name.equals(target) || !component.players().containsKey(node.name)) {
+                continue;
+            }
+            for (final ClusterProtocol.PlayerPos pos : node.active.players()) {
+                if (component.cells().contains(Cell.of(pos.dimension(), pos.chunkX(), pos.chunkZ())) && !this.transfers.containsKey(pos.uuid())) {
+                    this.transfers.put(pos.uuid(), new Transfer(pos.uuid(), node.name, target, System.currentTimeMillis(), why));
+                    this.pushNode(node.name, ClusterProtocol.PUSH_PREPARE, ClusterProtocol.string(pos.uuid()));
+                }
+            }
+            final List<Cell> owned = new ArrayList<>();
+            for (final Cell cell : component.cells()) {
+                if (node.name.equals(this.owners.get(cell))) {
+                    owned.add(cell);
+                }
+            }
+            if (!owned.isEmpty()) {
+                this.pushNode(node.name, ClusterProtocol.PUSH_EVICT, ClusterProtocol.cells(owned));
+            }
+        }
+    }
+
     public List<String> statusLines() {
         final List<String> lines = new ArrayList<>();
         lines.add("Cluster world " + this.world.toAbsolutePath() + ": " + this.nodes.size() + " node(s), " + this.owners.size()
-            + " owned cell(s), " + (this.links.values().stream().mapToInt(java.util.Set::size).sum() / 2) + " contraption link(s), " + this.reads.get() + " reads, " + this.writes.get() + " writes, " + this.denied.get() + " denied writes");
+            + " owned cell(s), " + this.proxies.size() + " proxy(ies), " + this.moves.get() + " player move(s), " + (this.links.values().stream().mapToInt(java.util.Set::size).sum() / 2) + " contraption link(s), " + this.reads.get() + " reads, " + this.writes.get() + " writes, " + this.denied.get() + " denied writes");
         for (final Node node : this.nodes.values()) {
             final long cells = this.owners.values().stream().filter(node.name::equals).count();
             lines.add(String.format(java.util.Locale.ROOT, "  node %s (index %d, %s): %d cell(s), %d player(s), %.1f MSPT",

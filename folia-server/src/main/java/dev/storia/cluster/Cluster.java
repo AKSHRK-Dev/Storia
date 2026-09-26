@@ -53,6 +53,7 @@ public final class Cluster {
     private static final long LINK_MIN_INHABITED_TICKS = 20L * 60L * 10L;
 
     private static volatile ClusterClient client;
+    private static volatile ClusterSpool spool;
     private static volatile String nodeName = "";
 
     /** Cells this node owns, and when a chunk in them was last read or written. */
@@ -61,6 +62,9 @@ public final class Cluster {
     private static final Map<Cell, Long> foreign = new ConcurrentHashMap<>();
     private static final Map<Cell, AtomicInteger> writesInFlight = new ConcurrentHashMap<>();
     private static final Set<String> linksSent = ConcurrentHashMap.newKeySet();
+    /** Cells the coordinator asked us to hand over: released as soon as they are unloaded and saved. */
+    private static final Set<Cell> evicting = ConcurrentHashMap.newKeySet();
+    static final AtomicLong playersSent = new AtomicLong();
 
     static final AtomicLong reads = new AtomicLong();
     static final AtomicLong writes = new AtomicLong();
@@ -89,6 +93,7 @@ public final class Cluster {
             throw new IllegalStateException("cluster.enabled is true, but cluster.node-name or a secret (at least 8 characters) is missing in storia.yml");
         }
         final ClusterClient.Address coordinator = ClusterClient.Address.parse(config.getString("cluster.coordinator", "127.0.0.1:25590"), 25590);
+        spool = new ClusterSpool();
         final ClusterClient connection = new ClusterClient(coordinator, secret, name);
         try {
             connection.connect(60_000L);
@@ -97,6 +102,7 @@ public final class Cluster {
         }
         client = connection;
         nodeName = name;
+        spool.drain(connection);
         LOGGER.info("Storia Cluster: node '{}' (index {}) joined the cluster at {}; the world is stored by the coordinator",
             name, connection.index(), connection.coordinatorAddress());
         final Thread maintenance = new Thread(Cluster::maintenanceLoop, "Storia Cluster maintenance");
@@ -136,9 +142,18 @@ public final class Cluster {
         return new ClusterProtocol.ChunkKey(storageType(info), info.dimension().identifier().toString(), x, z);
     }
 
+    private static String spoolKey(final ClusterProtocol.ChunkKey key) {
+        return "c " + key.type() + " " + key.dimension() + " " + key.x() + " " + key.z();
+    }
+
     public static CompoundTag read(final RegionStorageInfo info, final int x, final int z) throws IOException {
         final ClusterProtocol.ChunkKey key = key(info, x, z);
         final Cell cell = new Cell(key.dimension(), key.cellX(), key.cellZ());
+        final java.util.Optional<byte[]> spooled = spool.latest(spoolKey(key));
+        if (spooled != null) {
+            // newer than anything the coordinator has; it is still waiting to be sent
+            return spooled.isEmpty() ? null : decode(spooled.get());
+        }
         if (key.type() == ClusterProtocol.TYPE_CHUNK) {
             claim(cell);
         }
@@ -202,6 +217,26 @@ public final class Cluster {
     private static void write(final RegionStorageInfo info, final int x, final int z, final byte[] record) throws IOException {
         final ClusterProtocol.ChunkKey key = key(info, x, z);
         final Cell cell = new Cell(key.dimension(), key.cellX(), key.cellZ());
+        if (!spool.isEmpty()) {
+            spool.append(ClusterProtocol.OP_WRITE, spoolKey(key), ClusterProtocol.write(key, record));
+            return;
+        }
+        try {
+            writeNow(key, cell, record);
+        } catch (final IOException ex) {
+            if (ex.getMessage() != null && ex.getMessage().startsWith("cluster write failed")) {
+                throw ex;
+            }
+            LOGGER.warn("Storia Cluster: could not send a write to the coordinator ({}); keeping it locally until it is back", ex.getMessage());
+            spool.append(ClusterProtocol.OP_WRITE, spoolKey(key), ClusterProtocol.write(key, record));
+        }
+    }
+
+    private static void writeNow(final ClusterProtocol.ChunkKey key, final Cell cell, final byte[] record) throws IOException {
+        writeNow(key, cell, record, true);
+    }
+
+    private static void writeNow(final ClusterProtocol.ChunkKey key, final Cell cell, final byte[] record, final boolean retryClaim) throws IOException {
         if (!claim(cell)) {
             skippedWrites.incrementAndGet();
             return;
@@ -211,6 +246,12 @@ public final class Cluster {
         try {
             touch(cell);
             final ClusterProtocol.Response response = client.request(ClusterProtocol.OP_WRITE, ClusterProtocol.write(key, record));
+            if (response.status() == ClusterProtocol.DENIED && "null".equals(ClusterProtocol.readString(response.body())) && retryClaim) {
+                // the coordinator forgot we own this cell (it restarted): claim it again and retry once
+                owned.remove(cell);
+                writeNow(key, cell, record, false);
+                return;
+            }
             if (response.status() == ClusterProtocol.DENIED) {
                 owned.remove(cell);
                 foreign.put(cell, System.currentTimeMillis());
@@ -312,6 +353,9 @@ public final class Cluster {
             try {
                 Thread.sleep(250L);
                 final long now = System.currentTimeMillis();
+                if (!spool.isEmpty() && client.connected()) {
+                    spool.drain(client);
+                }
                 if (now - lastHeartbeat >= 1000L) {
                     lastHeartbeat = now;
                     heartbeat();
@@ -320,7 +364,7 @@ public final class Cluster {
                     lastGuard = now;
                     ClusterGuard.checkAll();
                 }
-                if (now - lastSweep >= 5000L) {
+                if (now - lastSweep >= (evicting.isEmpty() ? 5000L : 1000L)) {
                     lastSweep = now;
                     releaseIdleCells(now);
                     foreign.values().removeIf(t -> now - t > 5 * FOREIGN_RECHECK_MILLIS);
@@ -337,6 +381,108 @@ public final class Cluster {
         final MinecraftServer server = MinecraftServer.getServer();
         final int players = server == null ? 0 : server.getPlayerCount();
         client.request(ClusterProtocol.OP_HEARTBEAT, ClusterProtocol.heartbeat(0.0, players, owned.size()));
+        client.request(ClusterProtocol.OP_ACTIVE, ClusterProtocol.active(activeArea(server)));
+    }
+
+    /**
+     * The cells where this node's players make things tick: every cell within simulation distance + 1 chunks of a
+     * player. Each cell carries the number of players standing in it, so the coordinator can weigh areas.
+     */
+    private static ClusterProtocol.Active activeArea(final MinecraftServer server) {
+        final Map<Cell, Integer> cells = new java.util.HashMap<>();
+        final List<ClusterProtocol.PlayerPos> players = new ArrayList<>();
+        if (server == null || server.getPlayerList() == null) {
+            return new ClusterProtocol.Active(cells, players);
+        }
+        for (final net.minecraft.server.level.ServerPlayer player : List.copyOf(server.getPlayerList().getPlayers())) {
+            if (player.hasDisconnected()) {
+                continue;
+            }
+            final String dimension = player.level().dimension().identifier().toString();
+            final int cx = player.chunkPosition().x();
+            final int cz = player.chunkPosition().z();
+            final int reach = player.level().getWorld().getSimulationDistance() + 1;
+            for (int x = (cx - reach) >> 5; x <= (cx + reach) >> 5; ++x) {
+                for (int z = (cz - reach) >> 5; z <= (cz + reach) >> 5; ++z) {
+                    cells.merge(new Cell(dimension, x, z), 0, Integer::sum);
+                }
+            }
+            cells.merge(Cell.of(dimension, cx, cz), 1, Integer::sum);
+            players.add(new ClusterProtocol.PlayerPos(player.getStringUUID(), dimension, cx, cz));
+        }
+        return new ClusterProtocol.Active(cells, players);
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Pushes from the coordinator
+    // ---------------------------------------------------------------------------------------------
+
+    /** After a reconnect the coordinator may have restarted and forgotten our cells: claim them again. */
+    static void onReconnect() {
+        int kept = 0;
+        int lost = 0;
+        for (final Cell cell : List.copyOf(owned.keySet())) {
+            owned.remove(cell);
+            try {
+                if (claim(cell)) {
+                    kept++;
+                } else {
+                    lost++;
+                }
+            } catch (final IOException ex) {
+                owned.put(cell, System.currentTimeMillis());
+            }
+        }
+        LOGGER.info("Storia Cluster: claimed {} cell(s) again after reconnecting{}", kept, lost > 0 ? ", " + lost + " now run by other nodes" : "");
+    }
+
+    /** Claim used when replaying spooled writes. */
+    static boolean claimForReplay(final String dimension, final int chunkX, final int chunkZ) throws IOException {
+        return claim(Cell.of(dimension, chunkX, chunkZ));
+    }
+
+    static void onPush(final ClusterProtocol.Push push) {
+        try {
+            switch (push.op()) {
+                case ClusterProtocol.PUSH_EVICT -> {
+                    final List<Cell> cells = ClusterProtocol.readCells(push.body());
+                    for (final Cell cell : cells) {
+                        if (owned.containsKey(cell) && evicting.add(cell)) {
+                            LOGGER.info("Cluster: handing {} over to another node once its players have moved", cell);
+                        }
+                    }
+                }
+                case ClusterProtocol.PUSH_PREPARE -> prepareTransfer(ClusterProtocol.readString(push.body()));
+                default -> LOGGER.warn("Unknown cluster push {}", push.op());
+            }
+        } catch (final Exception ex) {
+            LOGGER.warn("Cluster push failed: {}", ex.toString());
+        }
+    }
+
+    /** Saves the player's data where the next node will read it, then tells the coordinator the move can happen. */
+    private static void prepareTransfer(final String uuid) {
+        final MinecraftServer server = MinecraftServer.getServer();
+        final net.minecraft.server.level.ServerPlayer player = server == null ? null : server.getPlayerList().getPlayer(java.util.UUID.fromString(uuid));
+        if (player == null) {
+            return;
+        }
+        player.getBukkitEntity().taskScheduler.schedule(entity -> {
+            if (!(entity instanceof net.minecraft.server.level.ServerPlayer p) || p.hasDisconnected()) {
+                return;
+            }
+            server.getPlayerList().playerIo.save(p);
+            final Thread thread = new Thread(() -> {
+                try {
+                    client.request(ClusterProtocol.OP_TRANSFER_READY, ClusterProtocol.string(uuid));
+                    playersSent.incrementAndGet();
+                } catch (final IOException ex) {
+                    LOGGER.warn("Could not confirm the move of {}: {}", p.getPlainTextName(), ex.getMessage());
+                }
+            }, "Storia Cluster transfer");
+            thread.setDaemon(true);
+            thread.start();
+        }, null, 1L);
     }
 
     /** Releases cells with no loaded chunks, no writes in flight and no use for a while. */
@@ -355,12 +501,14 @@ public final class Cluster {
         final List<Cell> release = new ArrayList<>();
         for (final Map.Entry<Cell, Long> entry : owned.entrySet()) {
             final AtomicInteger inFlight = writesInFlight.get(entry.getKey());
-            if (!inUse.contains(entry.getKey()) && now - entry.getValue() > RELEASE_IDLE_MILLIS && (inFlight == null || inFlight.get() == 0)) {
+            final boolean idleLongEnough = now - entry.getValue() > RELEASE_IDLE_MILLIS || (evicting.contains(entry.getKey()) && now - entry.getValue() > 2000L);
+            if (!inUse.contains(entry.getKey()) && idleLongEnough && (inFlight == null || inFlight.get() == 0)) {
                 release.add(entry.getKey());
             }
         }
         for (final Cell cell : release) {
             owned.remove(cell);
+            evicting.remove(cell);
             client.request(ClusterProtocol.OP_RELEASE, ClusterProtocol.cell(cell));
         }
     }
@@ -442,12 +590,29 @@ public final class Cluster {
     // ---------------------------------------------------------------------------------------------
 
     public static byte[] readPlayer(final String uuid, final String kind) throws IOException {
+        final java.util.Optional<byte[]> spooled = spool.latest("p " + uuid + " " + kind);
+        if (spooled != null) {
+            return spooled.orElse(null);
+        }
         final ClusterProtocol.Response response = client.request(ClusterProtocol.OP_PLAYER_READ, ClusterProtocol.player(uuid, kind, null));
         return response.status() == ClusterProtocol.OK ? response.body() : null;
     }
 
     public static void writePlayer(final String uuid, final String kind, final byte[] data) throws IOException {
-        final ClusterProtocol.Response response = client.request(ClusterProtocol.OP_PLAYER_WRITE, ClusterProtocol.player(uuid, kind, data));
+        final byte[] body = ClusterProtocol.player(uuid, kind, data);
+        final ClusterProtocol.Response response;
+        try {
+            if (!spool.isEmpty()) {
+                throw new IOException("earlier writes are still waiting");
+            }
+            response = client.request(ClusterProtocol.OP_PLAYER_WRITE, body);
+        } catch (final IOException ex) {
+            spool.append(ClusterProtocol.OP_PLAYER_WRITE, "p " + uuid + " " + kind, body);
+            return;
+        }
+        if (response.status() == ClusterProtocol.DENIED) {
+            return; // the player has moved to another node, which now owns their data
+        }
         if (response.status() != ClusterProtocol.OK) {
             throw new IOException("cluster player write failed: " + ClusterProtocol.readString(response.body()));
         }
@@ -478,7 +643,9 @@ public final class Cluster {
         lines.add("Node " + nodeName + " (index " + current.index() + "), coordinator " + current.coordinatorAddress()
             + (current.connected() ? " (connected)" : " (DISCONNECTED)"));
         lines.add(" own " + owned.size() + " cell(s), " + foreign.size() + " foreign; " + reads.get() + " reads, " + writes.get()
-            + " writes, " + skippedWrites.get() + " writes skipped (foreign), " + links.get() + " contraption link(s) reported");
+            + " writes, " + skippedWrites.get() + " writes skipped (foreign), " + links.get() + " contraption link(s) reported, "
+            + playersSent.get() + " player(s) handed to other nodes, " + evicting.size() + " cell(s) being handed over, "
+            + spool.size() + " write(s) waiting for the coordinator");
         try {
             final ClusterProtocol.Response response = current.request(ClusterProtocol.OP_STATUS, new byte[0]);
             if (response.status() == ClusterProtocol.OK) {

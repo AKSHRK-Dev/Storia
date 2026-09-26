@@ -19,6 +19,8 @@ public final class ClusterProtocol {
 
     /** HELLO role for cluster nodes (offload uses 0 = server, 1 = worker). */
     public static final byte ROLE_NODE = 2;
+    /** HELLO role for Storia Proxy instances that route players between nodes. */
+    public static final byte ROLE_PROXY = 3;
 
     public static final byte REQUEST = 20;
     public static final byte RESPONSE = 21;
@@ -34,6 +36,21 @@ public final class ClusterProtocol {
     public static final byte OP_HEARTBEAT = 7;
     public static final byte OP_STATUS = 8;
     public static final byte OP_LINK = 9;
+    /** Node -> coordinator, every second: active cells (with player counts) and player positions. */
+    public static final byte OP_ACTIVE = 10;
+    /** Proxy -> coordinator: which node should this player join? */
+    public static final byte OP_ROUTE = 11;
+    /** Node -> coordinator: the player's data is saved and the player may move. */
+    public static final byte OP_TRANSFER_READY = 12;
+
+    // pushes, coordinator -> node
+    /** Save, unload and release these cells soon (another node takes them over). */
+    public static final byte PUSH_EVICT = 1;
+    /** Save this player now and report OP_TRANSFER_READY; the player is moving to another node. */
+    public static final byte PUSH_PREPARE = 2;
+    // pushes, coordinator -> proxy
+    /** Move this player to that node's server. */
+    public static final byte PUSH_MOVE = 3;
 
     // response status
     public static final byte OK = 0;
@@ -249,6 +266,63 @@ public final class ClusterProtocol {
     public static Heartbeat readHeartbeat(final byte[] body) throws IOException {
         final DataInputStream in = new DataInputStream(new ByteArrayInputStream(body));
         return new Heartbeat(in.readDouble(), in.readInt(), in.readInt());
+    }
+
+    /** A player on a node: uuid, dimension and chunk position. */
+    public record PlayerPos(String uuid, String dimension, int chunkX, int chunkZ) {}
+
+    /** OP_ACTIVE body. */
+    public record Active(java.util.Map<Cell, Integer> cells, java.util.List<PlayerPos> players) {}
+
+    public static byte[] active(final Active active) {
+        return write(out -> {
+            out.writeInt(active.cells().size());
+            for (final var entry : active.cells().entrySet()) {
+                writeCell(out, entry.getKey());
+                out.writeInt(entry.getValue());
+            }
+            out.writeInt(active.players().size());
+            for (final PlayerPos player : active.players()) {
+                out.writeUTF(player.uuid());
+                out.writeUTF(player.dimension());
+                out.writeInt(player.chunkX());
+                out.writeInt(player.chunkZ());
+            }
+        });
+    }
+
+    public static Active readActive(final byte[] body) throws IOException {
+        final DataInputStream in = new DataInputStream(new ByteArrayInputStream(body));
+        final int cellCount = in.readInt();
+        if (cellCount < 0 || cellCount > 1_000_000) {
+            throw new IOException("bad cell count");
+        }
+        final java.util.Map<Cell, Integer> cells = new java.util.HashMap<>();
+        for (int i = 0; i < cellCount; ++i) {
+            cells.put(readCell(in), in.readInt());
+        }
+        final int playerCount = in.readInt();
+        if (playerCount < 0 || playerCount > 100_000) {
+            throw new IOException("bad player count");
+        }
+        final java.util.List<PlayerPos> players = new java.util.ArrayList<>(playerCount);
+        for (int i = 0; i < playerCount; ++i) {
+            players.add(new PlayerPos(in.readUTF(), in.readUTF(), in.readInt(), in.readInt()));
+        }
+        return new Active(cells, players);
+    }
+
+    /** PUSH_MOVE body: player uuid and target node name. */
+    public static byte[] move(final String uuid, final String node) {
+        return write(out -> {
+            out.writeUTF(uuid);
+            out.writeUTF(node);
+        });
+    }
+
+    public static String[] readMove(final byte[] body) throws IOException {
+        final DataInputStream in = new DataInputStream(new ByteArrayInputStream(body));
+        return new String[] {in.readUTF(), in.readUTF()};
     }
 
     public static byte[] string(final String value) {

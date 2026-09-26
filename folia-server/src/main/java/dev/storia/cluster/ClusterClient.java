@@ -106,7 +106,12 @@ final class ClusterClient {
         try {
             while (true) {
                 final byte[] message = channel.receive();
-                if (ClusterProtocol.type(message) == ClusterProtocol.RESPONSE) {
+                if (ClusterProtocol.type(message) == ClusterProtocol.PUSH) {
+                    final ClusterProtocol.Push push = ClusterProtocol.readPush(message);
+                    final Thread handler = new Thread(() -> Cluster.onPush(push), "Storia Cluster push");
+                    handler.setDaemon(true);
+                    handler.start();
+                } else if (ClusterProtocol.type(message) == ClusterProtocol.RESPONSE) {
                     final ClusterProtocol.Response response = ClusterProtocol.readResponse(message);
                     final CompletableFuture<ClusterProtocol.Response> future = this.pending.remove(response.id());
                     if (future != null) {
@@ -134,6 +139,9 @@ final class ClusterClient {
                 try {
                     this.open();
                     LOGGER.info("Reconnected to the cluster coordinator");
+                    final Thread reclaim = new Thread(Cluster::onReconnect, "Storia Cluster reclaim");
+                    reclaim.setDaemon(true);
+                    reclaim.start();
                 } catch (final IOException ex) {
                     LOGGER.error("Still cannot reach the cluster coordinator: {}", ex.getMessage());
                     try {

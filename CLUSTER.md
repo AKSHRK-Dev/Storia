@@ -1,6 +1,8 @@
 # Storia Cluster (design)
 
-Status: in development. Goal: several Storia servers ("nodes") run **one** world together, each ticking a
+Status: in development. Done: phase 1 (shared world, ownership, contraption links, local spool for coordinator
+outages, re-claim after coordinator restarts) and phase 2 (placement by activity, merging, balancing, player
+transfers with data handover through Storia Proxy; verified: items survive repeated moves). Next: phase 3. Goal: several Storia servers ("nodes") run **one** world together, each ticking a
 different part of it, with automatic placement and seamless movement for players.
 
 ## Principles
@@ -43,6 +45,21 @@ different part of it, with automatic placement and seamless movement for players
    through a hidden viewer on that node, multiplexed by the proxy.
 5. **Global state.** Time, weather, game rules, world border, scoreboards, maps, advancements and a shared
    key-value/messaging API for plugins.
+
+## Robustness
+
+- **Spool.** Writes that cannot reach the coordinator are kept in `cluster-spool/` on the node, in order, and
+  replayed when it is back (also after a node restart). While anything is spooled, new writes queue behind it
+  and reads see the spooled data first.
+- **Coordinator restarts** lose the in-memory ownership table. Nodes claim their cells again when they reconnect,
+  and a write refused for "no owner" claims the cell and retries once.
+- **Player data** has a holder: only the node that last loaded a player may save them, so a late save from the
+  node a player just left is refused instead of rolling the player back.
+
+## Keeping copies in sync
+
+`dev/storia/offload/protocol/*` and `dev/storia/cluster/protocol/*` are copied into Storia Proxy
+(`proxy/src/main/java/dev/storia/...`). Change them here first and copy them over.
 
 ## Phase 1 details
 
