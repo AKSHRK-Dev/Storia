@@ -1,0 +1,105 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AKSHRK-Dev <311836316+AKSHRK-Dev@users.noreply.github.com>
+Date: Sun, 27 Sep 2026 01:20:33 +0900
+Subject: [PATCH] Storia cluster: advancements and statistics through the
+ coordinator
+
+
+diff --git a/net/minecraft/server/PlayerAdvancements.java b/net/minecraft/server/PlayerAdvancements.java
+index d447b444abd9b62ab241419301a96d19ae77a7eb..0ba5814af897b075f12f08eba69d1120afca2093 100644
+--- a/net/minecraft/server/PlayerAdvancements.java
++++ b/net/minecraft/server/PlayerAdvancements.java
+@@ -110,6 +110,23 @@ public class PlayerAdvancements {
+     }
+ 
+     private void load(final ServerAdvancementManager manager) {
++        // Storia start - cluster: advancements live on the coordinator
++        if (dev.storia.cluster.Cluster.enabled()) {
++            try {
++                final byte[] bytes = dev.storia.cluster.Cluster.readPlayer(this.player.getStringUUID(), "advancements");
++                if (bytes != null) {
++                    JsonElement json = StrictJsonParser.parse(new java.io.StringReader(new String(bytes, StandardCharsets.UTF_8)));
++                    PlayerAdvancements.Data data = this.codec.parse(JsonOps.INSTANCE, json).getOrThrow(JsonParseException::new);
++                    this.applyFrom(manager, data);
++                }
++            } catch (IOException | JsonParseException e) {
++                LOGGER.error("Couldn't load player advancements for {} from the cluster", this.player.getStringUUID(), e);
++            }
++            this.checkForAutomaticTriggers(manager);
++            this.registerListeners(manager);
++            return;
++        }
++        // Storia end - cluster
+         if (Files.isRegularFile(this.playerSavePath)) {
+             try (Reader reader = Files.newBufferedReader(this.playerSavePath, StandardCharsets.UTF_8)) {
+                 JsonElement json = StrictJsonParser.parse(reader);
+@@ -129,6 +146,18 @@ public class PlayerAdvancements {
+     public void save() {
+         if (org.spigotmc.SpigotConfig.disableAdvancementSaving) return; // Spigot
+         JsonElement json = this.codec.encodeStart(JsonOps.INSTANCE, this.asData()).getOrThrow();
++        // Storia start - cluster
++        if (dev.storia.cluster.Cluster.enabled()) {
++            try {
++                final java.io.StringWriter out = new java.io.StringWriter();
++                GSON.toJson(json, GSON.newJsonWriter(out));
++                dev.storia.cluster.Cluster.writePlayer(this.player.getStringUUID(), "advancements", out.toString().getBytes(StandardCharsets.UTF_8));
++            } catch (IOException | JsonIOException e) {
++                LOGGER.error("Couldn't save player advancements for {} to the cluster", this.player.getStringUUID(), e);
++            }
++            return;
++        }
++        // Storia end - cluster
+ 
+         try {
+             FileUtil.createDirectoriesSafe(this.playerSavePath.getParent());
+diff --git a/net/minecraft/stats/ServerStatsCounter.java b/net/minecraft/stats/ServerStatsCounter.java
+index f5beb001b938072e78c0ead7e0ad0499784ed1cf..beebc21664fd2b620f27cf4a8a144365896e6b37 100644
+--- a/net/minecraft/stats/ServerStatsCounter.java
++++ b/net/minecraft/stats/ServerStatsCounter.java
+@@ -65,6 +65,18 @@ public class ServerStatsCounter extends StatsCounter {
+ 
+     public ServerStatsCounter(final MinecraftServer server, final Path file) {
+         this.file = file;
++        // Storia start - cluster: statistics live on the coordinator
++        if (dev.storia.cluster.Cluster.enabled()) {
++            try {
++                final byte[] bytes = dev.storia.cluster.Cluster.readPlayer(storia$uuid(file), "stats");
++                if (bytes != null) {
++                    this.parse(server.getFixerUpper(), StrictJsonParser.parse(new java.io.StringReader(new String(bytes, java.nio.charset.StandardCharsets.UTF_8))));
++                }
++            } catch (IOException | JsonParseException e) {
++                LOGGER.error("Couldn't load statistics for {} from the cluster", storia$uuid(file), e);
++            }
++        } else
++        // Storia end - cluster
+         if (Files.isRegularFile(file)) {
+             try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
+                 JsonElement element = StrictJsonParser.parse(reader);
+@@ -88,8 +100,27 @@ public class ServerStatsCounter extends StatsCounter {
+         // Paper end - Moved after stat fetching for player state file
+     }
+ 
++    // Storia start - cluster
++    private static String storia$uuid(final Path file) {
++        final String name = file.getFileName().toString();
++        return name.endsWith(".json") ? name.substring(0, name.length() - 5) : name;
++    }
++    // Storia end - cluster
++
+     public void save() {
+         if (org.spigotmc.SpigotConfig.disableStatSaving) return; // Spigot
++        // Storia start - cluster
++        if (dev.storia.cluster.Cluster.enabled()) {
++            try {
++                final java.io.StringWriter out = new java.io.StringWriter();
++                GSON.toJson(this.toJson(), GSON.newJsonWriter(out));
++                dev.storia.cluster.Cluster.writePlayer(storia$uuid(this.file), "stats", out.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
++            } catch (IOException | JsonIOException e) {
++                LOGGER.error("Couldn't save statistics for {} to the cluster", storia$uuid(this.file), e);
++            }
++            return;
++        }
++        // Storia end - cluster
+         try {
+             FileUtil.createDirectoriesSafe(this.file.getParent());
+ 

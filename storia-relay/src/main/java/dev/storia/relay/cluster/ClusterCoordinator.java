@@ -95,6 +95,8 @@ public final class ClusterCoordinator {
         volatile long lastHeartbeat = System.currentTimeMillis();
         volatile ClusterProtocol.Heartbeat lastStats = new ClusterProtocol.Heartbeat(0, 0, 0);
         volatile ClusterProtocol.Active active = new ClusterProtocol.Active(Map.of(), List.of());
+        /** Stopping: its players are moved away and it gets no new ones. */
+        volatile boolean draining;
 
         Node(final String name, final int index, final SecureChannel channel) {
             this.name = name;
@@ -181,9 +183,13 @@ public final class ClusterCoordinator {
             }
             case ClusterProtocol.OP_PLAYER_READ -> {
                 final ClusterProtocol.Player player = ClusterProtocol.readPlayer(request.body());
-                if (player.kind().equals("data")) {
-                    this.playerHolder.put(player.uuid(), node.name);
+                final String holder = this.playerHolder.get(player.uuid());
+                final boolean force = "force".equals(new String(player.data() == null ? new byte[0] : player.data(), java.nio.charset.StandardCharsets.UTF_8));
+                if (holder != null && !holder.equals(node.name) && this.nodes.containsKey(holder) && !force) {
+                    // still on another node, which has not saved them for the last time yet
+                    yield new ClusterProtocol.Response(id, ClusterProtocol.WAIT, ClusterProtocol.string(holder));
                 }
+                this.playerHolder.put(player.uuid(), node.name);
                 final Path file = this.playerFile(player);
                 yield Files.exists(file)
                     ? new ClusterProtocol.Response(id, ClusterProtocol.OK, Files.readAllBytes(file))
@@ -237,6 +243,56 @@ public final class ClusterCoordinator {
                 yield transfer != null && transfer.to().equals(node.name) && entityId != null
                     ? new ClusterProtocol.Response(id, ClusterProtocol.OK, ClusterProtocol.string(String.valueOf(entityId)))
                     : new ClusterProtocol.Response(id, ClusterProtocol.NOT_FOUND, null);
+            }
+            case ClusterProtocol.OP_GLOBAL -> {
+                final String body = ClusterProtocol.readString(request.body());
+                final boolean primary = node.name.equals(this.primaryNode());
+                final boolean state = body.startsWith("state\n") && primary;
+                final boolean change = body.startsWith("change\n") && body.length() > "change\n".length();
+                if (state || change) {
+                    for (final Node other : this.nodes.values()) {
+                        if (!other.name.equals(node.name)) {
+                            this.pushNode(other.name, ClusterProtocol.PUSH_GLOBAL, ClusterProtocol.string(body));
+                        }
+                    }
+                }
+                yield new ClusterProtocol.Response(id, ClusterProtocol.OK, ClusterProtocol.string(primary ? "primary" : "follower"));
+            }
+            case ClusterProtocol.OP_DRAIN -> {
+                node.draining = true;
+                int moved = 0;
+                for (final ClusterProtocol.PlayerPos pos : node.active.players()) {
+                    final String target = this.nodes.values().stream().filter(n -> !n.draining && !n.name.equals(node.name))
+                        .min(java.util.Comparator.comparingInt((Node n) -> n.lastStats.players())).map(n -> n.name).orElse(null);
+                    if (target != null && !this.transfers.containsKey(pos.uuid())) {
+                        this.transfers.put(pos.uuid(), new Transfer(pos.uuid(), node.name, target, System.currentTimeMillis(), node.name + " is stopping"));
+                        this.pushNode(node.name, ClusterProtocol.PUSH_PREPARE, ClusterProtocol.string(pos.uuid()));
+                        moved++;
+                    }
+                }
+                this.log.accept("Node " + node.name + " is stopping; moving " + moved + " player(s) to other nodes");
+                yield new ClusterProtocol.Response(id, ClusterProtocol.OK, ClusterProtocol.string(String.valueOf(moved)));
+            }
+            case ClusterProtocol.OP_DATA_READ -> {
+                final Path file = this.dataFile(ClusterProtocol.readPlayer(request.body()).uuid());
+                yield Files.exists(file)
+                    ? new ClusterProtocol.Response(id, ClusterProtocol.OK, Files.readAllBytes(file))
+                    : new ClusterProtocol.Response(id, ClusterProtocol.NOT_FOUND, null);
+            }
+            case ClusterProtocol.OP_DATA_WRITE -> {
+                final ClusterProtocol.Player data = ClusterProtocol.readPlayer(request.body());
+                final Path file = this.dataFile(data.uuid());
+                Files.createDirectories(file.getParent());
+                final Path temp = file.resolveSibling(file.getFileName() + ".tmp");
+                Files.write(temp, data.data() == null ? new byte[0] : data.data());
+                AnvilStore.move(temp, file);
+                yield new ClusterProtocol.Response(id, ClusterProtocol.OK, null);
+            }
+            case ClusterProtocol.OP_COUNTER -> new ClusterProtocol.Response(id, ClusterProtocol.OK,
+                ClusterProtocol.string(Long.toString(this.nextCounter(ClusterProtocol.readString(request.body())))));
+            case ClusterProtocol.OP_PLAYER_RELEASE -> {
+                this.playerHolder.remove(ClusterProtocol.readString(request.body()), node.name);
+                yield new ClusterProtocol.Response(id, ClusterProtocol.OK, null);
             }
             case ClusterProtocol.OP_STATUS -> new ClusterProtocol.Response(id, ClusterProtocol.OK, ClusterProtocol.string(String.join("\n", this.statusLines())));
             default -> new ClusterProtocol.Response(id, ClusterProtocol.ERROR, ClusterProtocol.string("unknown op " + request.op()));
@@ -478,11 +534,11 @@ public final class ClusterCoordinator {
         final ClusterProtocol.PlayerPos pos = this.lastPos.get(uuid);
         if (pos != null) {
             final String owner = this.owners.get(Cell.of(pos.dimension(), pos.chunkX(), pos.chunkZ()));
-            if (owner != null && this.nodes.containsKey(owner)) {
+            if (owner != null && this.nodes.containsKey(owner) && !this.nodes.get(owner).draining) {
                 return owner;
             }
         }
-        return this.nodes.values().stream()
+        return this.nodes.values().stream().filter(n -> !n.draining)
             .min(java.util.Comparator.comparingInt((Node n) -> n.lastStats.players()).thenComparing(n -> n.name))
             .map(n -> n.name).orElse(null);
     }
@@ -555,10 +611,13 @@ public final class ClusterCoordinator {
                 continue;
             }
             final String target = component.players().entrySet().stream()
+                .filter(e -> this.nodes.containsKey(e.getKey()) && !this.nodes.get(e.getKey()).draining)
                 .max(java.util.Comparator.<Map.Entry<String, Integer>>comparingInt(Map.Entry::getValue)
                     .thenComparing(e -> -this.load(e.getKey())).thenComparing(Map.Entry::getKey, java.util.Comparator.reverseOrder()))
-                .get().getKey();
-            this.moveComponent(component, target, "areas met");
+                .map(Map.Entry::getKey).orElse(null);
+            if (target != null) {
+                this.moveComponent(component, target, "areas met");
+            }
         }
         // 2. balance: every 10 s, move one whole component from the busiest to the quietest node
         if (now - this.lastBalance < 10_000L || !this.transfers.isEmpty() || this.nodes.size() < 2) {
@@ -566,9 +625,12 @@ public final class ClusterCoordinator {
         }
         this.lastBalance = now;
         final Map<String, Integer> totals = new java.util.HashMap<>();
-        this.nodes.keySet().forEach(n -> totals.put(n, 0));
+        this.nodes.values().stream().filter(n -> !n.draining).forEach(n -> totals.put(n.name, 0));
         for (final Component component : components) {
-            component.players().forEach((n, p) -> totals.merge(n, p, Integer::sum));
+            component.players().forEach((n, p) -> totals.computeIfPresent(n, (k, v) -> v + p));
+        }
+        if (totals.size() < 2) {
+            return;
         }
         final String heavy = totals.entrySet().stream().max(Map.Entry.comparingByValue()).get().getKey();
         final String light = totals.entrySet().stream().min(Map.Entry.comparingByValue()).get().getKey();
@@ -580,6 +642,57 @@ public final class ClusterCoordinator {
             .filter(c -> c.players().size() == 1 && c.players().containsKey(heavy) && c.total() > 0 && c.total() * 2 <= gap)
             .min(java.util.Comparator.comparingInt(Component::total))
             .ifPresent(c -> this.moveComponent(c, light, "balancing " + heavy + " -> " + light));
+    }
+
+    /** A shared data file: only map and command storage files under data/, nothing else. */
+    private Path dataFile(final String relative) throws IOException {
+        if (!relative.matches("data/[a-z0-9_.-]+/(map_[0-9]+|command_storage_[a-z0-9_.-]+)\\.dat")) {
+            throw new IOException("not a shared data file: " + relative);
+        }
+        return this.world.resolve(relative);
+    }
+
+    private final Map<String, Long> counters = new ConcurrentHashMap<>();
+
+    /** Next value of a cluster-wide counter, persisted next to the world. Map ids start after the highest map file. */
+    private synchronized long nextCounter(final String name) throws IOException {
+        if (!name.equals("map")) {
+            throw new IOException("unknown counter " + name);
+        }
+        final Path file = this.world.resolve("storia-cluster-counters.txt");
+        if (this.counters.isEmpty() && Files.exists(file)) {
+            for (final String line : Files.readAllLines(file)) {
+                final String[] kv = line.split("=");
+                if (kv.length == 2) {
+                    this.counters.put(kv[0], Long.parseLong(kv[1].trim()));
+                }
+            }
+        }
+        long next = this.counters.getOrDefault(name, -1L);
+        if (next < 0) {
+            next = 0;
+            final Path maps = this.world.resolve("data").resolve("minecraft");
+            if (Files.isDirectory(maps)) {
+                try (var files = Files.list(maps)) {
+                    for (final Path map : (Iterable<Path>) files::iterator) {
+                        final String n = map.getFileName().toString();
+                        if (n.matches("map_[0-9]+\\.dat")) {
+                            next = Math.max(next, Long.parseLong(n.substring(4, n.length() - 4)) + 1);
+                        }
+                    }
+                }
+            }
+        }
+        this.counters.put(name, next + 1);
+        final StringBuilder out = new StringBuilder();
+        this.counters.forEach((k, v) -> out.append(k).append('=').append(v).append('\n'));
+        Files.writeString(file, out.toString());
+        return next;
+    }
+
+    /** The node that keeps time and weather: the connected node with the lowest index. */
+    private String primaryNode() {
+        return this.nodes.values().stream().min(java.util.Comparator.comparingInt((Node n) -> n.index)).map(n -> n.name).orElse(null);
     }
 
     private double load(final String node) {

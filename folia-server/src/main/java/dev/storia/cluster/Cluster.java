@@ -362,6 +362,7 @@ public final class Cluster {
                 if (now - lastHeartbeat >= 1000L) {
                     lastHeartbeat = now;
                     heartbeat();
+                    ClusterGlobal.tick(client);
                 }
                 if (now - lastGuard >= 1000L) {
                     lastGuard = now;
@@ -388,8 +389,8 @@ public final class Cluster {
     }
 
     /**
-     * The cells where this node's players make things tick: every cell within simulation distance + 1 chunks of a
-     * player. Each cell carries the number of players standing in it, so the coordinator can weigh areas.
+     * The cells this node's players can see: every cell within view distance + 1 chunks of a player. Areas whose
+     * cells touch are merged onto one node, so no player ever sees chunks that another node runs. Each cell carries the number of players standing in it, so the coordinator can weigh areas.
      */
     private static ClusterProtocol.Active activeArea(final MinecraftServer server) {
         final Map<Cell, Integer> cells = new java.util.HashMap<>();
@@ -404,7 +405,8 @@ public final class Cluster {
             final String dimension = player.level().dimension().identifier().toString();
             final int cx = player.chunkPosition().x();
             final int cz = player.chunkPosition().z();
-            final int reach = player.level().getWorld().getSimulationDistance() + 1;
+            // view distance, not just simulation distance: areas merge before a player could see another node's chunks
+            final int reach = Math.max(player.level().getWorld().getViewDistance(), player.level().getWorld().getSimulationDistance()) + 1;
             for (int x = (cx - reach) >> 5; x <= (cx + reach) >> 5; ++x) {
                 for (int z = (cz - reach) >> 5; z <= (cz + reach) >> 5; ++z) {
                     cells.merge(new Cell(dimension, x, z), 0, Integer::sum);
@@ -449,6 +451,86 @@ public final class Cluster {
         return movingOut.remove(uuid);
     }
 
+    /** Called after a player has left and all their data is saved: another node may load them now. */
+    public static void releasePlayer(final java.util.UUID uuid) {
+        if (client == null) {
+            return;
+        }
+        try {
+            client.request(ClusterProtocol.OP_PLAYER_RELEASE, ClusterProtocol.string(uuid.toString()));
+        } catch (final IOException ex) {
+            LOGGER.warn("Could not tell the coordinator that {} left: {}", uuid, ex.getMessage());
+        }
+    }
+
+    private static volatile boolean draining;
+
+    /**
+     * Called from /stop: moves this node's players to other nodes first (while regions still tick), then runs
+     * {@code halt}. Returns false if there is nothing to do, so the caller halts right away.
+     */
+    public static boolean drainThenHalt(final Runnable halt) {
+        final MinecraftServer server = MinecraftServer.getServer();
+        if (client == null || draining || server == null || server.getPlayerList() == null || server.getPlayerCount() == 0) {
+            return false;
+        }
+        draining = true;
+        final Thread thread = new Thread(() -> {
+            drainBeforeStop();
+            halt.run();
+        }, "Storia Cluster drain");
+        thread.start();
+        return true;
+    }
+
+    /**
+     * Asks the coordinator to move this node's players to other nodes, and waits up to 15 seconds for them to leave.
+     */
+    public static void drainBeforeStop() {
+        final MinecraftServer server = MinecraftServer.getServer();
+        if (client == null || server == null || server.getPlayerList() == null || server.getPlayerCount() == 0) {
+            return;
+        }
+        try {
+            final ClusterProtocol.Response response = client.request(ClusterProtocol.OP_DRAIN, new byte[0]);
+            final int moving = Integer.parseInt(ClusterProtocol.readString(response.body()));
+            if (moving == 0) {
+                return;
+            }
+            LOGGER.info("Storia Cluster: moving {} player(s) to other nodes before stopping", moving);
+            final long deadline = System.currentTimeMillis() + 15_000L;
+            while (server.getPlayerCount() > 0 && System.currentTimeMillis() < deadline) {
+                Thread.sleep(200L);
+            }
+        } catch (final Exception ex) {
+            LOGGER.warn("Storia Cluster: could not move players away before stopping: {}", ex.toString());
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Shared world data: map ids and map files
+    // ---------------------------------------------------------------------------------------------
+
+    /** Whether a saved data file (relative to the world folder) is shared through the coordinator. */
+    public static boolean sharesData(final String relative) {
+        return client != null && relative.matches("data/[a-z0-9_.-]+/(map_[0-9]+|command_storage_[a-z0-9_.-]+)\\.dat");
+    }
+
+    public static byte[] readData(final String relative) throws IOException {
+        final ClusterProtocol.Response response = client.request(ClusterProtocol.OP_DATA_READ, ClusterProtocol.player(relative, "data", null));
+        return response.status() == ClusterProtocol.OK ? response.body() : null;
+    }
+
+    public static void writeData(final String relative, final byte[] data) throws IOException {
+        client.request(ClusterProtocol.OP_DATA_WRITE, ClusterProtocol.player(relative, "data", data));
+    }
+
+    /** Next map id, unique across the cluster. */
+    public static int nextMapId() throws IOException {
+        final ClusterProtocol.Response response = client.request(ClusterProtocol.OP_COUNTER, ClusterProtocol.string("map"));
+        return Integer.parseInt(ClusterProtocol.readString(response.body()));
+    }
+
     /** After a reconnect the coordinator may have restarted and forgotten our cells: claim them again. */
     static void onReconnect() {
         int kept = 0;
@@ -485,6 +567,7 @@ public final class Cluster {
                     }
                 }
                 case ClusterProtocol.PUSH_PREPARE -> prepareTransfer(ClusterProtocol.readString(push.body()));
+                case ClusterProtocol.PUSH_GLOBAL -> ClusterGlobal.apply(ClusterProtocol.readString(push.body()));
                 default -> LOGGER.warn("Unknown cluster push {}", push.op());
             }
         } catch (final Exception ex) {
@@ -504,6 +587,8 @@ public final class Cluster {
                 return;
             }
             server.getPlayerList().playerIo.save(p);
+            p.getAdvancements().save();
+            p.getStats().save();
             movingOut.add(p.getUUID());
             final int entityId = p.getId();
             final Thread thread = new Thread(() -> {
@@ -628,7 +713,23 @@ public final class Cluster {
         if (spooled != null) {
             return spooled.orElse(null);
         }
-        final ClusterProtocol.Response response = client.request(ClusterProtocol.OP_PLAYER_READ, ClusterProtocol.player(uuid, kind, null));
+        // If the player is still on another node, wait until it has saved them for the last time.
+        final long deadline = System.currentTimeMillis() + 10_000L;
+        ClusterProtocol.Response response = client.request(ClusterProtocol.OP_PLAYER_READ, ClusterProtocol.player(uuid, kind, null));
+        while (response.status() == ClusterProtocol.WAIT) {
+            if (System.currentTimeMillis() > deadline) {
+                LOGGER.warn("Storia Cluster: node {} did not let go of player {} within 10 s; loading the last saved data", ClusterProtocol.readString(response.body()), uuid);
+                response = client.request(ClusterProtocol.OP_PLAYER_READ, ClusterProtocol.player(uuid, kind, "force".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+                break;
+            }
+            try {
+                Thread.sleep(250L);
+            } catch (final InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IOException("interrupted", ex);
+            }
+            response = client.request(ClusterProtocol.OP_PLAYER_READ, ClusterProtocol.player(uuid, kind, null));
+        }
         return response.status() == ClusterProtocol.OK ? response.body() : null;
     }
 
@@ -679,7 +780,14 @@ public final class Cluster {
         lines.add(" own " + owned.size() + " cell(s), " + foreign.size() + " foreign; " + reads.get() + " reads, " + writes.get()
             + " writes, " + skippedWrites.get() + " writes skipped (foreign), " + links.get() + " contraption link(s) reported, "
             + playersSent.get() + " player(s) handed to other nodes, " + evicting.size() + " cell(s) being handed over, "
-            + spool.size() + " write(s) waiting for the coordinator");
+            + spool.size() + " write(s) waiting for the coordinator; time and weather: "
+            + (ClusterGlobal.isPrimary() ? "kept by this node" : "following the primary node"));
+        final MinecraftServer server = MinecraftServer.getServer();
+        if (server != null) {
+            for (final ServerLevel level : server.getAllLevels()) {
+                lines.add(" " + level.dimension().identifier() + ": " + ClusterGlobal.describe(server, level));
+            }
+        }
         try {
             final ClusterProtocol.Response response = current.request(ClusterProtocol.OP_STATUS, new byte[0]);
             if (response.status() == ClusterProtocol.OK) {

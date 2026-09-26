@@ -4,7 +4,10 @@ Status: in development. Done: phase 1 (shared world, ownership, contraption link
 outages, re-claim after coordinator restarts) and phase 2 (placement by activity, merging, balancing, player
 transfers with data handover through Storia Proxy; verified: items survive repeated moves) and phase 3 (seamless
 switching for 26.1/26.2 clients: no login, respawn or configuration packets on a move, same entity id, old
-entities removed; verified with protocol-level bots, a real client check is still to do). Next: phase 4. Goal: several Storia servers ("nodes") run **one** world together, each ticking a
+entities removed; verified with protocol-level bots, a real client check is still to do), phase 4 (replaced by
+merging on view areas: areas merge before a player could see another node's chunks) and most of phase 5
+(advancements, statistics, time, weather, map ids and map data; /stop hands players to other nodes first; strict
+player data handover). Still open: scoreboard and game rule sync, a shared API for plugins, a real-client check. Goal: several Storia servers ("nodes") run **one** world together, each ticking a
 different part of it, with automatic placement and seamless movement for players.
 
 ## Principles
@@ -43,7 +46,9 @@ different part of it, with automatic placement and seamless movement for players
 3. **Seamless switching** (done). Storia Proxy moves a player to another node without respawn/login packets:
    cluster-unique entity IDs, the player's state handed over through the coordinator, entities of the old node
    removed and those of the new node spawned.
-4. **Seeing across.** View-only sessions: a player sees chunks and entities of an area owned by another node
+4. **Seeing across** (done differently: nodes report their players' *view* areas, so areas merge before anyone
+   could see chunks run by another node; no view-only sessions needed).
+   Original idea: View-only sessions: a player sees chunks and entities of an area owned by another node
    through a hidden viewer on that node, multiplexed by the proxy.
 5. **Global state.** Time, weather, game rules, world border, scoreboards, maps, advancements and a shared
    key-value/messaging API for plugins.
@@ -57,6 +62,11 @@ different part of it, with automatic placement and seamless movement for players
   and a write refused for "no owner" claims the cell and retries once.
 - **Player data** has a holder: only the node that last loaded a player may save them, so a late save from the
   node a player just left is refused instead of rolling the player back.
+
+- **Player data handover.** A node that loads a player becomes their holder. Another node that wants to load
+  them waits until the holder has saved them for the last time (released), or up to 10 seconds. A coordinated
+  move hands the holder over before the proxy switches, so the next node never loads stale data.
+- **/stop** moves the node's players to other nodes first (while regions still tick), then stops.
 
 ## Keeping copies in sync
 

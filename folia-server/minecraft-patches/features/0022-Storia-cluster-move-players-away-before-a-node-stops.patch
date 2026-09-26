@@ -1,0 +1,18 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AKSHRK-Dev <311836316+AKSHRK-Dev@users.noreply.github.com>
+Date: Sun, 27 Sep 2026 01:32:21 +0900
+Subject: [PATCH] Storia cluster: move players away before a node stops
+
+
+diff --git a/io/papermc/paper/threadedregions/RegionShutdownThread.java b/io/papermc/paper/threadedregions/RegionShutdownThread.java
+index f2208bcd5ccf3bd5a428e8ea3bf3ff26b3c9483b..a8682c013febaeedc5aa2645488d78a666e9436c 100644
+--- a/io/papermc/paper/threadedregions/RegionShutdownThread.java
++++ b/io/papermc/paper/threadedregions/RegionShutdownThread.java
+@@ -151,6 +151,7 @@ public final class RegionShutdownThread extends ca.spottedleaf.moonrise.common.u
+ 
+     @Override
+     public final void run() {
++        dev.storia.cluster.Cluster.drainBeforeStop(); // Storia - cluster: hand players to other nodes while regions still tick
+         // await scheduler termination
+         LOGGER.info("Awaiting scheduler termination for 60s...");
+         if (TickRegions.getScheduler().halt(true, TimeUnit.SECONDS.toNanos(60L))) {

@@ -1,0 +1,19 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AKSHRK-Dev <311836316+AKSHRK-Dev@users.noreply.github.com>
+Date: Sun, 27 Sep 2026 01:25:03 +0900
+Subject: [PATCH] Storia cluster: only the primary node runs the weather cycle
+
+
+diff --git a/net/minecraft/server/level/ServerLevel.java b/net/minecraft/server/level/ServerLevel.java
+index 495816af4b9883930cc02cf5a041656c4eb085e9..27af2db32ac2e01346beb9a722760f5da3aa4e13 100644
+--- a/net/minecraft/server/level/ServerLevel.java
++++ b/net/minecraft/server/level/ServerLevel.java
+@@ -1308,7 +1308,7 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+         boolean wasRaining = this.isRaining();
+         if (this.canHaveWeather()) {
+             WeatherData weatherData = this.getWeatherData();
+-            if (this.getGameRules().get(GameRules.ADVANCE_WEATHER)) {
++            if (this.getGameRules().get(GameRules.ADVANCE_WEATHER) && !dev.storia.cluster.ClusterGlobal.isFollower()) { // Storia - cluster: only the primary node runs the weather cycle
+                 int clearWeatherTime = weatherData.getClearWeatherTime();
+                 int thunderTime = weatherData.getThunderTime();
+                 int rainTime = weatherData.getRainTime();

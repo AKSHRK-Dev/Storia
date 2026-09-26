@@ -1,0 +1,117 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AKSHRK-Dev <311836316+AKSHRK-Dev@users.noreply.github.com>
+Date: Sun, 27 Sep 2026 01:38:35 +0900
+Subject: [PATCH] Storia cluster: shared map ids and map data, drain on /stop,
+ player release
+
+
+diff --git a/io/papermc/paper/threadedregions/RegionShutdownThread.java b/io/papermc/paper/threadedregions/RegionShutdownThread.java
+index a8682c013febaeedc5aa2645488d78a666e9436c..f2208bcd5ccf3bd5a428e8ea3bf3ff26b3c9483b 100644
+--- a/io/papermc/paper/threadedregions/RegionShutdownThread.java
++++ b/io/papermc/paper/threadedregions/RegionShutdownThread.java
+@@ -151,7 +151,6 @@ public final class RegionShutdownThread extends ca.spottedleaf.moonrise.common.u
+ 
+     @Override
+     public final void run() {
+-        dev.storia.cluster.Cluster.drainBeforeStop(); // Storia - cluster: hand players to other nodes while regions still tick
+         // await scheduler termination
+         LOGGER.info("Awaiting scheduler termination for 60s...");
+         if (TickRegions.getScheduler().halt(true, TimeUnit.SECONDS.toNanos(60L))) {
+diff --git a/net/minecraft/server/MinecraftServer.java b/net/minecraft/server/MinecraftServer.java
+index bcf64a15987285c6001648933605e10fffc1b850..cd57f0f2be04d3d1a8c856ab82b84a843282630e 100644
+--- a/net/minecraft/server/MinecraftServer.java
++++ b/net/minecraft/server/MinecraftServer.java
+@@ -1196,6 +1196,7 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+         this.halt(wait, false);
+     }
+     public void halt(final boolean wait, final boolean isRestarting) {
++        if (!wait && dev.storia.cluster.Cluster.drainThenHalt(() -> this.halt(false, isRestarting))) return; // Storia - cluster: hand players to other nodes before stopping
+         this.isRestarting = isRestarting;
+         this.hasLoggedStop = true; // Paper - Debugging
+         if (this.isDebugging()) io.papermc.paper.util.TraceUtil.dumpTraceForThread("Server stopped"); // Paper - Debugging
+diff --git a/net/minecraft/server/level/ServerLevel.java b/net/minecraft/server/level/ServerLevel.java
+index 27af2db32ac2e01346beb9a722760f5da3aa4e13..218e1bcd3907879a99597ed796a1ca532daca89e 100644
+--- a/net/minecraft/server/level/ServerLevel.java
++++ b/net/minecraft/server/level/ServerLevel.java
+@@ -2493,6 +2493,15 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+     }
+ 
+     public MapId getFreeMapId() {
++        // Storia start - cluster: map ids are handed out by the coordinator, so two nodes never make the same map id
++        if (dev.storia.cluster.Cluster.enabled()) {
++            try {
++                return new MapId(dev.storia.cluster.Cluster.nextMapId());
++            } catch (final java.io.IOException ex) {
++                throw new IllegalStateException("Cannot get a map id from the cluster coordinator", ex);
++            }
++        }
++        // Storia end - cluster
+         return this.getServer().getDataStorage().computeIfAbsent(MapIndex.TYPE).getNextMapId();
+     }
+ 
+diff --git a/net/minecraft/server/players/PlayerList.java b/net/minecraft/server/players/PlayerList.java
+index e9e9bda91db5c91c28cf2f09c9ad838fcc822b6a..1e7e88902a1cef69595ef9d5197d9acf142cd9ea 100644
+--- a/net/minecraft/server/players/PlayerList.java
++++ b/net/minecraft/server/players/PlayerList.java
+@@ -535,6 +535,7 @@ public abstract class PlayerList {
+         }
+         // Paper end - Drop carried item when player has disconnected
+         this.save(player);
++        dev.storia.cluster.Cluster.releasePlayer(player.getUUID()); // Storia - cluster: saved for the last time here; another node may load them now
+         if (player.isPassenger()) {
+             Entity vehicle = player.getRootVehicle();
+             if (vehicle.hasExactlyOnePlayerPassenger()) {
+diff --git a/net/minecraft/world/level/storage/SavedDataStorage.java b/net/minecraft/world/level/storage/SavedDataStorage.java
+index 81c1541d8fa272e84316e87c3418ee727111a65c..93d74fa68b9dcf2cdbda0ec887ce73edfe3ca3df 100644
+--- a/net/minecraft/world/level/storage/SavedDataStorage.java
++++ b/net/minecraft/world/level/storage/SavedDataStorage.java
+@@ -121,9 +121,29 @@ public class SavedDataStorage implements AutoCloseable {
+         // Folia end - region threading
+     }
+ 
++    // Storia start - cluster: shared data files (maps, command storage) live on the coordinator
++    private @Nullable String storia$shared(final Path file) {
++        final Path world = this.dataFolder.toAbsolutePath().normalize().getParent();
++        if (world == null) return null;
++        final String relative = world.relativize(file.toAbsolutePath().normalize()).toString().replace('\\', '/');
++        return dev.storia.cluster.Cluster.sharesData(relative) ? relative : null;
++    }
++    // Storia end - cluster
++
+     private <T extends SavedData> @Nullable T readSavedData(final SavedDataType<T> type) {
+         try {
+             Path file = this.getDataFile(type.id());
++            // Storia start - cluster
++            final String shared = this.storia$shared(file);
++            if (shared != null) {
++                final byte[] bytes = dev.storia.cluster.Cluster.readData(shared);
++                if (bytes == null) return null;
++                CompoundTag tag = NbtIo.readCompressed(new java.io.ByteArrayInputStream(bytes), NbtAccounter.unlimitedHeap());
++                tag = type.dataFixType().update(this.fixerUpper, tag, NbtUtils.getDataVersion(tag, 1343), SharedConstants.getCurrentVersion().dataVersion().version());
++                RegistryOps<Tag> ops = this.registries.createSerializationContext(NbtOps.INSTANCE);
++                return type.codec().parse(ops, tag.get("data")).resultOrPartial(error -> LOGGER.error("Failed to parse saved data for '{}': {}", type, error)).orElse(null);
++            }
++            // Storia end - cluster
+             if (Files.exists(file)) {
+                 CompoundTag tag = this.readTagFromDisk(file, type.dataFixType(), SharedConstants.getCurrentVersion().dataVersion().version());
+                 RegistryOps<Tag> ops = this.registries.createSerializationContext(NbtOps.INSTANCE);
+@@ -282,6 +302,19 @@ public class SavedDataStorage implements AutoCloseable {
+ 
+     private void tryWrite(final SavedDataType<?> type, final CompoundTag tag) {
+         Path path = this.getDataFile(type.id());
++        // Storia start - cluster
++        final String shared = this.storia$shared(path);
++        if (shared != null) {
++            try {
++                final java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
++                NbtIo.writeCompressed(tag, (java.io.OutputStream) bytes);
++                dev.storia.cluster.Cluster.writeData(shared, bytes.toByteArray());
++            } catch (IOException e) {
++                LOGGER.error("Could not save {} to the cluster", shared, e);
++            }
++            return;
++        }
++        // Storia end - cluster
+ 
+         try {
+             FileUtil.createDirectoriesSafe(path.getParent());

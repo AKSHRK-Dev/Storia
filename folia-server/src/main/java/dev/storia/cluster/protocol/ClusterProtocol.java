@@ -44,6 +44,17 @@ public final class ClusterProtocol {
     public static final byte OP_TRANSFER_READY = 12;
     /** Node -> coordinator, at login: is this player arriving by a cluster move? Answers the entity id to keep. */
     public static final byte OP_TRANSFER_INFO = 13;
+    /** Node -> coordinator, every second: time and weather ("state" from the primary, "change" from others). */
+    public static final byte OP_GLOBAL = 14;
+    /** Node -> coordinator when it is stopping: move my players to other nodes first. */
+    public static final byte OP_DRAIN = 15;
+    /** Shared world data files (maps, command storage) by path relative to the world folder. */
+    public static final byte OP_DATA_READ = 16;
+    public static final byte OP_DATA_WRITE = 17;
+    /** Cluster-wide counters (map ids): returns the next value. */
+    public static final byte OP_COUNTER = 18;
+    /** Node -> coordinator: the player has left this node and all their data is saved; another node may load them. */
+    public static final byte OP_PLAYER_RELEASE = 19;
 
     // pushes, coordinator -> node
     /** Save, unload and release these cells soon (another node takes them over). */
@@ -53,6 +64,9 @@ public final class ClusterProtocol {
     // pushes, coordinator -> proxy
     /** Move this player to that node's server. */
     public static final byte PUSH_MOVE = 3;
+    // push, coordinator -> node
+    /** Time and weather to apply. */
+    public static final byte PUSH_GLOBAL = 4;
 
     // response status
     public static final byte OK = 0;
