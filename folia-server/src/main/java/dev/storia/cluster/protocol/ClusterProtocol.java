@@ -55,6 +55,11 @@ public final class ClusterProtocol {
     public static final byte OP_COUNTER = 18;
     /** Node -> coordinator: the player has left this node and all their data is saved; another node may load them. */
     public static final byte OP_PLAYER_RELEASE = 19;
+    /**
+     * Node -> coordinator: a scoreboard change for the other nodes (target ""), a snapshot for one node (target = its name),
+     * or a request for a snapshot (target "?", empty data).
+     */
+    public static final byte OP_SCOREBOARD = 20;
 
     // pushes, coordinator -> node
     /** Save, unload and release these cells soon (another node takes them over). */
@@ -67,6 +72,8 @@ public final class ClusterProtocol {
     // push, coordinator -> node
     /** Time and weather to apply. */
     public static final byte PUSH_GLOBAL = 4;
+    /** Scoreboard change or snapshot from another node; empty data = that node wants a snapshot. */
+    public static final byte PUSH_SCOREBOARD = 5;
 
     // response status
     public static final byte OK = 0;
@@ -339,6 +346,21 @@ public final class ClusterProtocol {
     public static String[] readMove(final byte[] body) throws IOException {
         final DataInputStream in = new DataInputStream(new ByteArrayInputStream(body));
         return new String[] {in.readUTF(), in.readUTF()};
+    }
+
+    /** A name (target or sender) followed by opaque data. */
+    public static byte[] named(final String name, final byte[] data) {
+        return write(out -> {
+            out.writeUTF(name);
+            writeBytes(out, data);
+        });
+    }
+
+    public record Named(String name, byte[] data) {}
+
+    public static Named readNamed(final byte[] body) throws IOException {
+        final DataInputStream in = new DataInputStream(new ByteArrayInputStream(body));
+        return new Named(in.readUTF(), readBytes(in));
     }
 
     public static byte[] string(final String value) {

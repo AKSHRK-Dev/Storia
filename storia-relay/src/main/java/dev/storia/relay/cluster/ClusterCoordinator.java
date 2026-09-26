@@ -258,6 +258,23 @@ public final class ClusterCoordinator {
                 }
                 yield new ClusterProtocol.Response(id, ClusterProtocol.OK, ClusterProtocol.string(primary ? "primary" : "follower"));
             }
+            case ClusterProtocol.OP_SCOREBOARD -> {
+                final ClusterProtocol.Named named = ClusterProtocol.readNamed(request.body());
+                if (named.name().equals("?")) {
+                    // a node that just started wants the current scoreboard: ask another node
+                    this.nodes.values().stream().filter(n -> !n.name.equals(node.name)).min(java.util.Comparator.comparingInt((Node n) -> n.index))
+                        .ifPresent(n -> this.pushNode(n.name, ClusterProtocol.PUSH_SCOREBOARD, ClusterProtocol.named(node.name, new byte[0])));
+                } else if (named.name().isEmpty()) {
+                    for (final Node other : this.nodes.values()) {
+                        if (!other.name.equals(node.name)) {
+                            this.pushNode(other.name, ClusterProtocol.PUSH_SCOREBOARD, ClusterProtocol.named(node.name, named.data()));
+                        }
+                    }
+                } else {
+                    this.pushNode(named.name(), ClusterProtocol.PUSH_SCOREBOARD, ClusterProtocol.named(node.name, named.data()));
+                }
+                yield new ClusterProtocol.Response(id, ClusterProtocol.OK, null);
+            }
             case ClusterProtocol.OP_DRAIN -> {
                 node.draining = true;
                 int moved = 0;
@@ -646,7 +663,7 @@ public final class ClusterCoordinator {
 
     /** A shared data file: only map and command storage files under data/, nothing else. */
     private Path dataFile(final String relative) throws IOException {
-        if (!relative.matches("data/[a-z0-9_.-]+/(map_[0-9]+|command_storage_[a-z0-9_.-]+)\\.dat")) {
+        if (!relative.matches("data/[a-z0-9_.-]+/(map_[0-9]+|command_storage_[a-z0-9_.-]+|scoreboard)\\.dat")) {
             throw new IOException("not a shared data file: " + relative);
         }
         return this.world.resolve(relative);

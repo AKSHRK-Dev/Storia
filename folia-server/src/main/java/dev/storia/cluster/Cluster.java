@@ -80,6 +80,10 @@ public final class Cluster {
         return client != null;
     }
 
+    static ClusterClient client() {
+        return client;
+    }
+
     /**
      * Connects to the coordinator if {@code cluster.enabled} is set in storia.yml. Called from Main before any
      * world is loaded; exits the server if the coordinator cannot be reached, since running without it would
@@ -363,6 +367,7 @@ public final class Cluster {
                     lastHeartbeat = now;
                     heartbeat();
                     ClusterGlobal.tick(client);
+                    ClusterScoreboard.tick(client);
                 }
                 if (now - lastGuard >= 1000L) {
                     lastGuard = now;
@@ -513,7 +518,7 @@ public final class Cluster {
 
     /** Whether a saved data file (relative to the world folder) is shared through the coordinator. */
     public static boolean sharesData(final String relative) {
-        return client != null && relative.matches("data/[a-z0-9_.-]+/(map_[0-9]+|command_storage_[a-z0-9_.-]+)\\.dat");
+        return client != null && relative.matches("data/[a-z0-9_.-]+/(map_[0-9]+|command_storage_[a-z0-9_.-]+|scoreboard)\\.dat");
     }
 
     public static byte[] readData(final String relative) throws IOException {
@@ -568,6 +573,7 @@ public final class Cluster {
                 }
                 case ClusterProtocol.PUSH_PREPARE -> prepareTransfer(ClusterProtocol.readString(push.body()));
                 case ClusterProtocol.PUSH_GLOBAL -> ClusterGlobal.apply(ClusterProtocol.readString(push.body()));
+                case ClusterProtocol.PUSH_SCOREBOARD -> ClusterScoreboard.onPush(ClusterProtocol.readNamed(push.body()));
                 default -> LOGGER.warn("Unknown cluster push {}", push.op());
             }
         } catch (final Exception ex) {
@@ -787,6 +793,7 @@ public final class Cluster {
             for (final ServerLevel level : server.getAllLevels()) {
                 lines.add(" " + level.dimension().identifier() + ": " + ClusterGlobal.describe(server, level));
             }
+            lines.add(" scoreboard: " + ClusterScoreboard.describe(server.getScoreboard()));
         }
         try {
             final ClusterProtocol.Response response = current.request(ClusterProtocol.OP_STATUS, new byte[0]);

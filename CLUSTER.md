@@ -6,8 +6,8 @@ transfers with data handover through Storia Proxy; verified: items survive repea
 switching for 26.1/26.2 clients: no login, respawn or configuration packets on a move, same entity id, old
 entities removed; verified with protocol-level bots, a real client check is still to do), phase 4 (replaced by
 merging on view areas: areas merge before a player could see another node's chunks) and most of phase 5
-(advancements, statistics, time, weather, map ids and map data; /stop hands players to other nodes first; strict
-player data handover). Still open: scoreboard and game rule sync, a shared API for plugins, a real-client check. Goal: several Storia servers ("nodes") run **one** world together, each ticking a
+(advancements, statistics, time, weather, game rules, scoreboard, map ids and map data; /stop hands players to
+other nodes first; strict player data handover). Still open: a shared API for plugins, a real-client check. Goal: several Storia servers ("nodes") run **one** world together, each ticking a
 different part of it, with automatic placement and seamless movement for players.
 
 ## Principles
@@ -88,6 +88,12 @@ Same encrypted channel as offload (`SecureChannel`, shared secret). Request/resp
 - `HEARTBEAT(load)` every second; a node that misses 15 seconds of heartbeats loses its leases.
 - `LINK(cellA, cellB)`: a contraption touches the border between two cells. A CLAIM grants the whole linked
   group at once (or nothing); a group is released when every cell in it has been released by its owner.
+- `SCOREBOARD(target, change)`: a change to the main scoreboard (objective, score, lock, reset, display slot,
+  team, team members) is relayed to every other node, which applies it on its global region without sending it
+  back. A starting node sends target `?`; the coordinator asks another node, which sends the whole scoreboard
+  to it. `scoreboard.dat` is also shared. Plugin scoreboards stay local. (Folia has no /scoreboard or /team
+  commands; changes come from criteria such as `deathCount` and from a scoreboard.dat carried over from
+  another server.)
 
 Types: `chunk` (`region/`), `entities` (`entities/`), `poi` (`poi/`).
 
