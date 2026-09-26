@@ -84,6 +84,10 @@ public final class StoriaRelay {
                     in-flight-per-thread=4
                     # Give up on a worker's answer after this long (the server then generates the chunk itself).
                     timeout-ms=20000
+                    # Storia Cluster (in development): several Storia nodes share one world stored here.
+                    # Nodes: cluster.enabled: true and cluster.coordinator: "<this host>:<port>" in storia.yml.
+                    cluster=false
+                    cluster-world=cluster-world
                     """);
             }
             log("Created " + file.toAbsolutePath() + "; set a secret and start again.");
@@ -104,7 +108,14 @@ public final class StoriaRelay {
         System.out.println("[" + LocalTime.now().format(TIME) + "] " + message);
     }
 
+    private dev.storia.relay.cluster.ClusterCoordinator cluster;
+
     private void run() throws IOException {
+        if (Boolean.parseBoolean(this.config.getProperty("cluster", "false"))) {
+            final java.nio.file.Path world = java.nio.file.Path.of(this.config.getProperty("cluster-world", "cluster-world"));
+            this.cluster = new dev.storia.relay.cluster.ClusterCoordinator(world, StoriaRelay::log);
+            log("Cluster mode on: storing the shared world in " + world.toAbsolutePath());
+        }
         final String bind = this.config.getProperty("bind", "0.0.0.0");
         final int port = Integer.parseInt(this.config.getProperty("port", "25590"));
         final Thread console = new Thread(this::console, "console");
@@ -155,6 +166,9 @@ public final class StoriaRelay {
         for (final Server server : this.servers) {
             log("  server " + server.channel.remoteAddress() + ": capacity " + server.lastCapacity);
         }
+        if (this.cluster != null) {
+            this.cluster.statusLines().forEach(StoriaRelay::log);
+        }
     }
 
     private void handle(final Socket socket) {
@@ -177,6 +191,12 @@ public final class StoriaRelay {
                 this.runWorker(new Worker(channel, hello.threads(), hello.probes()));
             } else if (hello.role() == Messages.ROLE_SERVER) {
                 this.runServer(new Server(channel, hello.probes()));
+            } else if (hello.role() == dev.storia.cluster.protocol.ClusterProtocol.ROLE_NODE) {
+                if (this.cluster == null) {
+                    channel.send(Messages.welcome(new Messages.Welcome(false, "cluster mode is off on this relay (cluster=true in relay.properties)")));
+                } else {
+                    this.cluster.serve(channel, hello);
+                }
             } else {
                 channel.send(Messages.welcome(new Messages.Welcome(false, "unknown role")));
             }

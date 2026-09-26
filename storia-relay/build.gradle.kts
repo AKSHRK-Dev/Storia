@@ -9,9 +9,9 @@ sourceSets {
     main {
         java {
             srcDir("src/main/java")
-            // The encrypted offload protocol is shared with the Storia server (no Minecraft classes in it).
+            // The encrypted offload and cluster protocols are shared with the Storia server (no Minecraft classes in it).
             srcDir("../folia-server/src/main/java")
-            include("dev/storia/relay/**", "dev/storia/offload/protocol/**")
+            include("dev/storia/relay/**", "dev/storia/offload/protocol/**", "dev/storia/cluster/protocol/**")
         }
     }
 }

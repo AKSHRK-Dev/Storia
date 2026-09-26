@@ -22,13 +22,13 @@ import static net.kyori.adventure.text.Component.text;
 
 public final class StoriaCommand extends Command {
 
-    private static final List<String> SUBCOMMANDS = List.of("sync", "status", "pregen", "budget", "region", "offload");
+    private static final List<String> SUBCOMMANDS = List.of("sync", "status", "pregen", "budget", "region", "offload", "cluster");
     private static final List<String> PREGEN_SUBCOMMANDS = List.of("start", "stop", "status", "resume");
 
     public StoriaCommand(final String name) {
         super(name);
         this.description = "Storia commands";
-        this.usageMessage = "/storia [sync | status | pregen | budget | region | offload]";
+        this.usageMessage = "/storia [sync | status | pregen | budget | region | offload | cluster]";
         this.setPermission("storia.command.storia");
     }
 
@@ -44,6 +44,7 @@ public final class StoriaCommand extends Command {
             case "pregen" -> this.pregen(sender, args);
             case "budget" -> this.budget(sender);
             case "region" -> this.regions(sender);
+            case "cluster" -> dev.storia.cluster.Cluster.status().forEach(line -> sender.sendMessage(text(line, NamedTextColor.WHITE)));
             case "offload" -> dev.storia.offload.NoiseOffload.status().forEach(line -> sender.sendMessage(text(line, NamedTextColor.WHITE)));
             default -> sender.sendMessage(text("Usage: " + this.usageMessage, NamedTextColor.RED));
         }

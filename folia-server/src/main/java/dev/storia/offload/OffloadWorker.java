@@ -246,8 +246,8 @@ final class OffloadWorker {
         return bytes.toByteArray();
     }
 
-    record HostPort(String host, int port) {
-        static HostPort parse(final String address, final int defaultPort) {
+    public record HostPort(String host, int port) {
+        public static HostPort parse(final String address, final int defaultPort) {
             final int colon = address.lastIndexOf(':');
             return colon < 0 ? new HostPort(address, defaultPort) : new HostPort(address.substring(0, colon), Integer.parseInt(address.substring(colon + 1)));
         }

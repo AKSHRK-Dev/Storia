@@ -1,0 +1,129 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AKSHRK-Dev <311836316+AKSHRK-Dev@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 20:17:01 +0900
+Subject: [PATCH] Storia cluster: shared world storage
+
+
+diff --git a/net/minecraft/server/Main.java b/net/minecraft/server/Main.java
+index 005a84cba57b2820a3daa6e9eca837e3cc6be787..b83890b389a7383d2e9ebfdd49bbdb1d157ce9f1 100644
+--- a/net/minecraft/server/Main.java
++++ b/net/minecraft/server/Main.java
+@@ -194,7 +194,8 @@ public class Main {
+             NotificationManager notificationManager = new NotificationManager();
+             ManagementServer jsonRpcServer = JsonRpc.create(settings, notificationManager);
+             String levelName = Optional.ofNullable((String) options.valueOf("world")).orElse(settings.getProperties().levelName); // CraftBukkit
+-            LevelStorageSource levelStorageSource = LevelStorageSource.createDefault(dev.storia.ramworld.RamWorld.init(universePath.toPath(), levelName)); // Storia - RAM world
++            dev.storia.cluster.Cluster.init(); // Storia - cluster: connect before any world data is read
++            LevelStorageSource levelStorageSource = LevelStorageSource.createDefault(dev.storia.cluster.Cluster.enabled() ? universePath.toPath() : dev.storia.ramworld.RamWorld.init(universePath.toPath(), levelName)); // Storia - RAM world // Storia - cluster: the world lives on the coordinator
+             LevelStorageSource.LevelStorageAccess access = levelStorageSource.validateAndCreateAccess(levelName);
+             Dynamic<?> levelDataTag;
+             if (access.hasWorldData()) {
+diff --git a/net/minecraft/server/level/ServerLevel.java b/net/minecraft/server/level/ServerLevel.java
+index 3f35a0b62e74580495dbb56d2a82139c197ddcb7..495816af4b9883930cc02cf5a041656c4eb085e9 100644
+--- a/net/minecraft/server/level/ServerLevel.java
++++ b/net/minecraft/server/level/ServerLevel.java
+@@ -191,7 +191,7 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+     private static final Logger LOGGER = LogUtils.getLogger();
+     private static final int EMPTY_TIME_NO_TICK = 300;
+     private static final int MAX_SCHEDULED_TICKS_PER_TICK = 65536;
+-    private static final AtomicInteger ENTITY_COUNTER = new AtomicInteger();
++    private static final AtomicInteger ENTITY_COUNTER = new AtomicInteger(dev.storia.cluster.Cluster.entityIdBase()); // Storia - cluster: entity ids never collide between nodes
+     private final List<ServerPlayer> players = new java.util.concurrent.CopyOnWriteArrayList<>(); // Folia - region threading
+     private final ServerChunkCache chunkSource;
+     private final MinecraftServer server;
+diff --git a/net/minecraft/world/level/chunk/storage/RegionFileStorage.java b/net/minecraft/world/level/chunk/storage/RegionFileStorage.java
+index 63b40c420030d935bb81a219fb33defe0946e21f..06787c98d2d54ee9d8aa351e74a1de926bbd3cff 100644
+--- a/net/minecraft/world/level/chunk/storage/RegionFileStorage.java
++++ b/net/minecraft/world/level/chunk/storage/RegionFileStorage.java
+@@ -135,6 +135,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+     public final ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.WriteData moonrise$startWrite(
+         final int chunkX, final int chunkZ, final CompoundTag compound
+     ) throws IOException {
++        if (dev.storia.cluster.Cluster.handles(this.info)) return dev.storia.cluster.Cluster.startWrite(this.info, chunkX, chunkZ, compound); // Storia - cluster
+         if (compound == null) {
+             return new ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.WriteData(
+                 compound, ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.WriteData.WriteResult.DELETE,
+@@ -175,6 +176,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+     public final void moonrise$finishWrite(
+         final int chunkX, final int chunkZ, final ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.WriteData writeData
+     ) throws IOException {
++        if (dev.storia.cluster.Cluster.handles(this.info)) { dev.storia.cluster.Cluster.finishWrite(this.info, chunkX, chunkZ, writeData); return; } // Storia - cluster
+         final ChunkPos pos = new ChunkPos(chunkX, chunkZ);
+         if (writeData.result() == ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.WriteData.WriteResult.DELETE) {
+             final RegionFile regionFile = this.moonrise$getRegionFileIfExists(chunkX, chunkZ);
+@@ -192,6 +194,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+     public final ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.ReadData moonrise$readData(
+         final int chunkX, final int chunkZ
+     ) throws IOException {
++        if (dev.storia.cluster.Cluster.handles(this.info)) return dev.storia.cluster.Cluster.readData(this.info, chunkX, chunkZ); // Storia - cluster
+         final RegionFile regionFile = this.moonrise$getRegionFileIfExists(chunkX, chunkZ);
+ 
+         final DataInputStream input = regionFile == null ? null : regionFile.getChunkDataInputStream(new ChunkPos(chunkX, chunkZ));
+@@ -228,6 +231,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+     public final CompoundTag moonrise$finishRead(
+         final int chunkX, final int chunkZ, final ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.ReadData readData
+     ) throws IOException {
++        if (dev.storia.cluster.Cluster.handles(this.info)) return readData.syncRead(); // Storia - cluster
+         try {
+             // Paper start - Attempt to recalculate regionfile header if it is corrupt
+             final CompoundTag ret = NbtIo.read(readData.input());
+@@ -345,6 +349,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+     // Paper end
+ 
+     public @Nullable CompoundTag read(final ChunkPos pos) throws IOException {
++        if (dev.storia.cluster.Cluster.handles(this.info)) return dev.storia.cluster.Cluster.read(this.info, pos.x(), pos.z()); // Storia - cluster
+         // CraftBukkit start - SPIGOT-5680: There's no good reason to preemptively create files on read, save that for writing
+         RegionFile region = this.getRegionFile(pos, true);
+         if (region == null) {
+@@ -382,6 +387,13 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+     }
+ 
+     public void scanChunk(final ChunkPos pos, final StreamTagVisitor scanner) throws IOException {
++        // Storia start - cluster
++        if (dev.storia.cluster.Cluster.handles(this.info)) {
++            final CompoundTag tag = dev.storia.cluster.Cluster.read(this.info, pos.x(), pos.z());
++            if (tag != null) tag.acceptAsRoot(scanner);
++            return;
++        }
++        // Storia end - cluster
+         // CraftBukkit start - SPIGOT-5680: There's no good reason to preemptively create files on read, save that for writing
+         RegionFile region = this.getRegionFile(pos, true);
+         if (region == null) {
+@@ -397,6 +409,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+     }
+ 
+     public void write(final ChunkPos pos, final @Nullable CompoundTag value) throws IOException {
++        if (dev.storia.cluster.Cluster.handles(this.info)) { dev.storia.cluster.Cluster.write(this.info, pos.x(), pos.z(), value); return; } // Storia - cluster
+         if (!SharedConstants.DEBUG_DONT_SAVE_WORLD) {
+             RegionFile region = this.getRegionFile(pos, value == null); // CraftBukkit // Paper - rewrite chunk system
+             // Paper start - rewrite chunk system
+diff --git a/net/minecraft/world/level/storage/PlayerDataStorage.java b/net/minecraft/world/level/storage/PlayerDataStorage.java
+index eddb6ebe3fa50a818e54079b73ba117be0abd195..1ae8725c29c0a57b94ee32f9c16cbdd75353f41f 100644
+--- a/net/minecraft/world/level/storage/PlayerDataStorage.java
++++ b/net/minecraft/world/level/storage/PlayerDataStorage.java
+@@ -38,6 +38,7 @@ public class PlayerDataStorage {
+             Path playerDirPath = this.playerDir.toPath();
+             Path tmpFile = Files.createTempFile(playerDirPath, player.getStringUUID() + "-", ".dat");
+             CompoundTag dataToStore = output.buildResult();
++            if (dev.storia.cluster.Cluster.enabled()) { Files.deleteIfExists(tmpFile); dev.storia.cluster.Cluster.writePlayerTag(player.getStringUUID(), dataToStore); return; } // Storia - cluster
+             NbtIo.writeCompressed(dataToStore, tmpFile);
+             Path realFile = playerDirPath.resolve(player.getStringUUID() + ".dat");
+             Path oldFile = playerDirPath.resolve(player.getStringUUID() + ".dat_old");
+@@ -62,6 +63,17 @@ public class PlayerDataStorage {
+     }
+ 
+     private Optional<CompoundTag> load(final NameAndId nameAndId, final String suffix) {
++        // Storia start - cluster: player data lives on the coordinator
++        if (dev.storia.cluster.Cluster.enabled()) {
++            if (!suffix.equals(".dat")) return Optional.empty();
++            try {
++                return Optional.ofNullable(dev.storia.cluster.Cluster.readPlayerTag(nameAndId.id().toString()));
++            } catch (final java.io.IOException ex) {
++                LOGGER.warn("Failed to load player data for {} from the cluster", nameAndId.name(), ex);
++                return Optional.empty();
++            }
++        }
++        // Storia end - cluster
+         File realFile = new File(this.playerDir, nameAndId.id() + suffix);
+         // Spigot start
+         boolean usingWrongFile = false;
