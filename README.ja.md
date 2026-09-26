@@ -61,6 +61,9 @@ java -Xmx8G -jar storia-26.2.jar nogui
 | `storia-relay-<version>.zip` | [Storia Relay](packaging/relay/README.md)：複数のワーカーに仕事を配る |
 | `storia-proxy-<version>.jar` | [Storia Proxy](https://github.com/AKSHRK-Dev/StoriaProxy)：プレースホルダー 50 個入りの Velocity フォーク |
 
+バージョンは Minecraft に合わせています。`26.2` は Minecraft 26.2 向けの最初のリリースで、同じ Minecraft バージョンの
+2 回目以降は `26.2-2`、`26.2-3` … となります。サーバー・ワーカー・リレーは同じバージョンにそろえてください。
+
 開発版は [Actions](../../actions) の成果物（`storia-jar`）からもダウンロードできます。
 
 ### 設定（`storia.yml`）

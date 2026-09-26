@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "dev.storia"
-version = providers.gradleProperty("relayVersion").getOrElse("1.0.0")
+version = providers.gradleProperty("relayVersion").getOrElse("dev")
 
 sourceSets {
     main {

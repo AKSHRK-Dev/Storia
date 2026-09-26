@@ -61,6 +61,9 @@ Download from [Releases](../../releases/latest):
 | `storia-relay-<version>.zip` | [Storia Relay](packaging/relay/README.md): hands terrain work to any number of workers |
 | `storia-proxy-<version>.jar` | [Storia Proxy](https://github.com/AKSHRK-Dev/StoriaProxy): Velocity fork with 50 built-in placeholders |
 
+Versions follow Minecraft: `26.2` is the first Storia release for Minecraft 26.2, and later builds for the same
+Minecraft version are `26.2-2`, `26.2-3`, and so on. Use the same version on the server, workers and relay.
+
 Development builds are also available as the `storia-jar` artifact in [Actions](../../actions).
 
 ### Configuration (`storia.yml`)
