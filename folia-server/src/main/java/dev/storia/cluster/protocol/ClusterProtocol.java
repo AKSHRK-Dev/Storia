@@ -42,6 +42,8 @@ public final class ClusterProtocol {
     public static final byte OP_ROUTE = 11;
     /** Node -> coordinator: the player's data is saved and the player may move. */
     public static final byte OP_TRANSFER_READY = 12;
+    /** Node -> coordinator, at login: is this player arriving by a cluster move? Answers the entity id to keep. */
+    public static final byte OP_TRANSFER_INFO = 13;
 
     // pushes, coordinator -> node
     /** Save, unload and release these cells soon (another node takes them over). */

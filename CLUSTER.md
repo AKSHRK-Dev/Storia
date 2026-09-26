@@ -2,7 +2,9 @@
 
 Status: in development. Done: phase 1 (shared world, ownership, contraption links, local spool for coordinator
 outages, re-claim after coordinator restarts) and phase 2 (placement by activity, merging, balancing, player
-transfers with data handover through Storia Proxy; verified: items survive repeated moves). Next: phase 3. Goal: several Storia servers ("nodes") run **one** world together, each ticking a
+transfers with data handover through Storia Proxy; verified: items survive repeated moves) and phase 3 (seamless
+switching for 26.1/26.2 clients: no login, respawn or configuration packets on a move, same entity id, old
+entities removed; verified with protocol-level bots, a real client check is still to do). Next: phase 4. Goal: several Storia servers ("nodes") run **one** world together, each ticking a
 different part of it, with automatic placement and seamless movement for players.
 
 ## Principles
@@ -38,7 +40,7 @@ different part of it, with automatic placement and seamless movement for players
    Verified with two nodes on one machine, players in separate areas.
 2. **Moving cluster regions.** Export (save + release) and import (claim + load) of a group of cells; the
    coordinator merges groups that approach each other onto one node and balances separate groups across nodes.
-3. **Seamless switching.** Storia Proxy moves a player to another node without respawn/login packets:
+3. **Seamless switching** (done). Storia Proxy moves a player to another node without respawn/login packets:
    cluster-unique entity IDs, the player's state handed over through the coordinator, entities of the old node
    removed and those of the new node spawned.
 4. **Seeing across.** View-only sessions: a player sees chunks and entities of an area owned by another node

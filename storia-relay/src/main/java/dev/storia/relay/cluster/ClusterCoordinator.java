@@ -69,6 +69,9 @@ public final class ClusterCoordinator {
 
     private record Transfer(String uuid, String from, String to, long started, String why) {}
 
+    /** Entity id a moving player keeps, so the proxy can switch without a respawn. */
+    private final Map<String, Integer> transferIds = new ConcurrentHashMap<>();
+
     public ClusterCoordinator(final Path world, final Consumer<String> log) throws IOException {
         this.world = world;
         Files.createDirectories(world);
@@ -213,8 +216,12 @@ public final class ClusterCoordinator {
                 yield new ClusterProtocol.Response(id, ClusterProtocol.OK, null);
             }
             case ClusterProtocol.OP_TRANSFER_READY -> {
-                final String uuid = ClusterProtocol.readString(request.body());
+                final String[] ready = ClusterProtocol.readString(request.body()).split(" ");
+                final String uuid = ready[0];
                 final Transfer transfer = this.transfers.get(uuid);
+                if (transfer != null && ready.length > 1) {
+                    this.transferIds.put(uuid, Integer.parseInt(ready[1]));
+                }
                 if (transfer != null && transfer.from().equals(node.name)) {
                     this.playerHolder.put(uuid, transfer.to());
                     this.pushProxies(ClusterProtocol.PUSH_MOVE, ClusterProtocol.move(uuid, transfer.to()));
@@ -222,6 +229,14 @@ public final class ClusterCoordinator {
                     this.log.accept("Moving player " + uuid + " from " + transfer.from() + " to " + transfer.to() + " (" + transfer.why() + ")");
                 }
                 yield new ClusterProtocol.Response(id, ClusterProtocol.OK, null);
+            }
+            case ClusterProtocol.OP_TRANSFER_INFO -> {
+                final String uuid = ClusterProtocol.readString(request.body());
+                final Transfer transfer = this.transfers.remove(uuid);
+                final Integer entityId = this.transferIds.remove(uuid);
+                yield transfer != null && transfer.to().equals(node.name) && entityId != null
+                    ? new ClusterProtocol.Response(id, ClusterProtocol.OK, ClusterProtocol.string(String.valueOf(entityId)))
+                    : new ClusterProtocol.Response(id, ClusterProtocol.NOT_FOUND, null);
             }
             case ClusterProtocol.OP_STATUS -> new ClusterProtocol.Response(id, ClusterProtocol.OK, ClusterProtocol.string(String.join("\n", this.statusLines())));
             default -> new ClusterProtocol.Response(id, ClusterProtocol.ERROR, ClusterProtocol.string("unknown op " + request.op()));
@@ -499,6 +514,7 @@ public final class ClusterCoordinator {
     private void place() {
         final long now = System.currentTimeMillis();
         this.transfers.values().removeIf(t -> now - t.started() > 15_000L);
+        this.transferIds.keySet().removeIf(uuid -> !this.transfers.containsKey(uuid));
         // cell -> node -> players
         final Map<Cell, Map<String, Integer>> activity = new java.util.HashMap<>();
         for (final Node node : this.nodes.values()) {

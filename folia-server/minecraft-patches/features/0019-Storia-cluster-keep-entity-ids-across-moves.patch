@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AKSHRK-Dev <311836316+AKSHRK-Dev@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 21:15:41 +0900
+Subject: [PATCH] Storia cluster: keep entity ids across moves
+
+
+diff --git a/net/minecraft/server/network/config/PrepareSpawnTask.java b/net/minecraft/server/network/config/PrepareSpawnTask.java
+index 9fad06eda81b4c2c1889a9cfa7a6948e7ee01862..feb84dde4201fc1037ce13f4daa31ac86ac15665 100644
+--- a/net/minecraft/server/network/config/PrepareSpawnTask.java
++++ b/net/minecraft/server/network/config/PrepareSpawnTask.java
+@@ -334,6 +334,7 @@ public class PrepareSpawnTask implements ConfigurationTask {
+             }
+             // Paper end - configuration api - possibly use legacy saved server player instance
+             PrepareSpawnTask.this.listener.paperConnection.applyPendingEntityId(player); // Paper - internal entity id api - possibly override player network id if plugins used internal API to configure it.
++            dev.storia.cluster.Cluster.applyTransferredId(player); // Storia - cluster: keep the entity id across a move between nodes
+             // Folia start - region threading - split out createPlayer and spawn
+             return player;
+         }
+diff --git a/net/minecraft/server/players/PlayerList.java b/net/minecraft/server/players/PlayerList.java
+index 259eb7574841b1b885093b534440f8a40db4e8e2..e9e9bda91db5c91c28cf2f09c9ad838fcc822b6a 100644
+--- a/net/minecraft/server/players/PlayerList.java
++++ b/net/minecraft/server/players/PlayerList.java
+@@ -309,6 +309,7 @@ public abstract class PlayerList {
+         player.containerMenu.transferTo(player.containerMenu, bukkitPlayer);
+ 
+         org.bukkit.event.player.PlayerJoinEvent playerJoinEvent = new org.bukkit.event.player.PlayerJoinEvent(bukkitPlayer, io.papermc.paper.adventure.PaperAdventure.asAdventure(component)); // Paper - Adventure
++        if (dev.storia.cluster.Cluster.arrivedByMove(player.getUUID())) playerJoinEvent.joinMessage(null); // Storia - cluster: a move between nodes is not a join
+         this.cserver.getPluginManager().callEvent(playerJoinEvent);
+ 
+         if (!player.connection.isAcceptingMessages()) {
+@@ -510,6 +511,7 @@ public abstract class PlayerList {
+         }
+ 
+         org.bukkit.event.player.PlayerQuitEvent playerQuitEvent = new org.bukkit.event.player.PlayerQuitEvent(player.getBukkitEntity(), leaveMessage, player.quitReason); // Paper - Adventure & Add API for quit reason
++        if (dev.storia.cluster.Cluster.leftByMove(player.getUUID())) playerQuitEvent.quitMessage(null); // Storia - cluster: a move between nodes is not a quit
+         this.cserver.getPluginManager().callEvent(playerQuitEvent);
+         player.getBukkitEntity().disconnect();
+ 

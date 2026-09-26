@@ -65,6 +65,9 @@ public final class Cluster {
     /** Cells the coordinator asked us to hand over: released as soon as they are unloaded and saved. */
     private static final Set<Cell> evicting = ConcurrentHashMap.newKeySet();
     static final AtomicLong playersSent = new AtomicLong();
+    /** Players leaving for another node / arriving from one: no quit or join message for them. */
+    private static final Set<java.util.UUID> movingOut = ConcurrentHashMap.newKeySet();
+    private static final Set<java.util.UUID> movedIn = ConcurrentHashMap.newKeySet();
 
     static final AtomicLong reads = new AtomicLong();
     static final AtomicLong writes = new AtomicLong();
@@ -379,7 +382,7 @@ public final class Cluster {
 
     private static void heartbeat() throws IOException {
         final MinecraftServer server = MinecraftServer.getServer();
-        final int players = server == null ? 0 : server.getPlayerCount();
+        final int players = server == null || server.getPlayerList() == null ? 0 : server.getPlayerCount();
         client.request(ClusterProtocol.OP_HEARTBEAT, ClusterProtocol.heartbeat(0.0, players, owned.size()));
         client.request(ClusterProtocol.OP_ACTIVE, ClusterProtocol.active(activeArea(server)));
     }
@@ -416,6 +419,35 @@ public final class Cluster {
     // ---------------------------------------------------------------------------------------------
     // Pushes from the coordinator
     // ---------------------------------------------------------------------------------------------
+
+    /**
+     * Called when a player is created at login. If they are arriving from another node, they keep their entity id,
+     * so Storia Proxy can switch them over without a respawn.
+     */
+    public static void applyTransferredId(final net.minecraft.server.level.ServerPlayer player) {
+        if (client == null) {
+            return;
+        }
+        try {
+            final ClusterProtocol.Response response = client.request(ClusterProtocol.OP_TRANSFER_INFO, ClusterProtocol.string(player.getStringUUID()));
+            if (response.status() == ClusterProtocol.OK) {
+                player.setId(Integer.parseInt(ClusterProtocol.readString(response.body())));
+                movedIn.add(player.getUUID());
+            }
+        } catch (final IOException ex) {
+            LOGGER.warn("Could not ask the coordinator about {}: {}", player.getGameProfile().name(), ex.getMessage());
+        }
+    }
+
+    /** Whether this join is a move from another node (no join message). Clears the mark. */
+    public static boolean arrivedByMove(final java.util.UUID uuid) {
+        return movedIn.remove(uuid);
+    }
+
+    /** Whether this quit is a move to another node (no quit message). Clears the mark. */
+    public static boolean leftByMove(final java.util.UUID uuid) {
+        return movingOut.remove(uuid);
+    }
 
     /** After a reconnect the coordinator may have restarted and forgotten our cells: claim them again. */
     static void onReconnect() {
@@ -472,9 +504,11 @@ public final class Cluster {
                 return;
             }
             server.getPlayerList().playerIo.save(p);
+            movingOut.add(p.getUUID());
+            final int entityId = p.getId();
             final Thread thread = new Thread(() -> {
                 try {
-                    client.request(ClusterProtocol.OP_TRANSFER_READY, ClusterProtocol.string(uuid));
+                    client.request(ClusterProtocol.OP_TRANSFER_READY, ClusterProtocol.string(uuid + " " + entityId));
                     playersSent.incrementAndGet();
                 } catch (final IOException ex) {
                     LOGGER.warn("Could not confirm the move of {}: {}", p.getPlainTextName(), ex.getMessage());
