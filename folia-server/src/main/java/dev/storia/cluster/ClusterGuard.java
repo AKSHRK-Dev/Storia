@@ -3,8 +3,6 @@ package dev.storia.cluster;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
 import net.minecraft.server.level.ServerPlayer;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -12,13 +10,20 @@ import org.bukkit.craftbukkit.entity.CraftPlayer;
 import org.bukkit.entity.Player;
 
 /**
- * Phase 1 only: keeps players far enough from cells owned by other nodes that nothing there ticks on this node.
- * A player who comes within simulation distance (+2 chunks) of a foreign cell is moved back to where they
- * last stood safely. Seamless switching between nodes (phase 3) replaces this.
+ * Last line of defence: keeps players far enough from cells owned by other nodes that nothing there ticks on this
+ * node. Normally the coordinator merges areas and moves the player long before this matters, so the guard only
+ * acts when a player has stayed near a foreign cell for {@link #PATIENCE_MILLIS} (the merge did not happen) and
+ * leaves players alone for {@link #ARRIVAL_GRACE_MILLIS} after they arrived from another node, while the old node
+ * is still handing its cells over.
  */
 final class ClusterGuard {
 
+    static final long PATIENCE_MILLIS = 8000L;
+    static final long ARRIVAL_GRACE_MILLIS = 15000L;
+
     private static final Map<UUID, Location> SAFE = new ConcurrentHashMap<>();
+    private static final Map<UUID, Long> NEAR_SINCE = new ConcurrentHashMap<>();
+    private static final Map<UUID, Long> ARRIVED = new ConcurrentHashMap<>();
 
     private ClusterGuard() {}
 
@@ -27,6 +32,9 @@ final class ClusterGuard {
             return;
         }
         SAFE.keySet().removeIf(uuid -> Bukkit.getPlayer(uuid) == null);
+        NEAR_SINCE.keySet().removeIf(uuid -> Bukkit.getPlayer(uuid) == null);
+        final long now = System.currentTimeMillis();
+        ARRIVED.values().removeIf(t -> now - t > ARRIVAL_GRACE_MILLIS);
         for (final Player player : Bukkit.getOnlinePlayers()) {
             ((CraftPlayer) player).taskScheduler.schedule(entity -> {
                 if (entity instanceof ServerPlayer serverPlayer) {
@@ -34,6 +42,11 @@ final class ClusterGuard {
                 }
             }, null, 1L);
         }
+    }
+
+    /** A player arrived from another node; its cells may still be foreign for a moment. */
+    static void arrived(final UUID uuid) {
+        ARRIVED.put(uuid, System.currentTimeMillis());
     }
 
     private static void check(final ServerPlayer player) {
@@ -51,12 +64,18 @@ final class ClusterGuard {
             }
         }
         final CraftPlayer bukkit = player.getBukkitEntity();
+        final UUID uuid = player.getUUID();
         if (!near) {
-            SAFE.put(player.getUUID(), bukkit.getLocation());
+            SAFE.put(uuid, bukkit.getLocation());
+            NEAR_SINCE.remove(uuid);
             return;
         }
+        final long now = System.currentTimeMillis();
+        final long since = NEAR_SINCE.computeIfAbsent(uuid, k -> now);
+        if (now - since < PATIENCE_MILLIS || ARRIVED.containsKey(uuid) || Cluster.isMovingOut(uuid)) {
+            return; // the coordinator is about to merge the areas or move the player
+        }
         final Location back = SAFE.get(player.getUUID());
-        bukkit.sendActionBar(Component.text("Another Storia server runs the area ahead.", NamedTextColor.GOLD));
         if (back != null && back.getWorld() == bukkit.getWorld()) {
             bukkit.teleportAsync(back);
         }

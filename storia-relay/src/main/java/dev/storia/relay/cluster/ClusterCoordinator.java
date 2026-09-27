@@ -281,7 +281,7 @@ public final class ClusterCoordinator {
                 for (final ClusterProtocol.PlayerPos pos : node.active.players()) {
                     final String target = this.nodes.values().stream().filter(n -> !n.draining && !n.name.equals(node.name))
                         .min(java.util.Comparator.comparingInt((Node n) -> n.lastStats.players())).map(n -> n.name).orElse(null);
-                    if (target != null && !this.transfers.containsKey(pos.uuid())) {
+                    if (target != null && !this.transfers.containsKey(pos.uuid()) && !this.alreadyLeft(pos.uuid(), node.name)) {
                         this.transfers.put(pos.uuid(), new Transfer(pos.uuid(), node.name, target, System.currentTimeMillis(), node.name + " is stopping"));
                         this.pushNode(node.name, ClusterProtocol.PUSH_PREPARE, ClusterProtocol.string(pos.uuid()));
                         moved++;
@@ -718,13 +718,23 @@ public final class ClusterCoordinator {
     }
 
     /** Moves every player in the component to {@code target} and asks the other nodes to let go of its cells. */
+    /**
+     * The player has been handed to another node already: the old node still reports them for a few seconds while
+     * the proxy switches the connection over, and must not get a second move for them.
+     */
+    private boolean alreadyLeft(final String uuid, final String node) {
+        final String holder = this.playerHolder.get(uuid);
+        return holder != null && !holder.equals(node);
+    }
+
     private void moveComponent(final Component component, final String target, final String why) {
         for (final Node node : this.nodes.values()) {
             if (node.name.equals(target) || !component.players().containsKey(node.name)) {
                 continue;
             }
             for (final ClusterProtocol.PlayerPos pos : node.active.players()) {
-                if (component.cells().contains(Cell.of(pos.dimension(), pos.chunkX(), pos.chunkZ())) && !this.transfers.containsKey(pos.uuid())) {
+                if (component.cells().contains(Cell.of(pos.dimension(), pos.chunkX(), pos.chunkZ())) && !this.transfers.containsKey(pos.uuid())
+                    && !this.alreadyLeft(pos.uuid(), node.name)) {
                     this.transfers.put(pos.uuid(), new Transfer(pos.uuid(), node.name, target, System.currentTimeMillis(), why));
                     this.pushNode(node.name, ClusterProtocol.PUSH_PREPARE, ClusterProtocol.string(pos.uuid()));
                 }

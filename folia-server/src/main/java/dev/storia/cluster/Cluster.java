@@ -66,7 +66,9 @@ public final class Cluster {
     private static final Set<Cell> evicting = ConcurrentHashMap.newKeySet();
     static final AtomicLong playersSent = new AtomicLong();
     /** Players leaving for another node / arriving from one: no quit or join message for them. */
-    private static final Set<java.util.UUID> movingOut = ConcurrentHashMap.newKeySet();
+    /** Players being handed to another node, and since when; a move that has not finished in 30 s may be retried. */
+    private static final Map<java.util.UUID, Long> movingOut = new ConcurrentHashMap<>();
+    private static final long MOVE_TIMEOUT_MILLIS = 30000L;
     private static final Set<java.util.UUID> movedIn = ConcurrentHashMap.newKeySet();
 
     static final AtomicLong reads = new AtomicLong();
@@ -440,6 +442,7 @@ public final class Cluster {
             if (response.status() == ClusterProtocol.OK) {
                 player.setId(Integer.parseInt(ClusterProtocol.readString(response.body())));
                 movedIn.add(player.getUUID());
+                ClusterGuard.arrived(player.getUUID());
             }
         } catch (final IOException ex) {
             LOGGER.warn("Could not ask the coordinator about {}: {}", player.getGameProfile().name(), ex.getMessage());
@@ -451,9 +454,15 @@ public final class Cluster {
         return movedIn.remove(uuid);
     }
 
+    /** Whether the player is being handed to another node right now. */
+    static boolean isMovingOut(final java.util.UUID uuid) {
+        final Long since = movingOut.get(uuid);
+        return since != null && System.currentTimeMillis() - since < MOVE_TIMEOUT_MILLIS;
+    }
+
     /** Whether this quit is a move to another node (no quit message). Clears the mark. */
     public static boolean leftByMove(final java.util.UUID uuid) {
-        return movingOut.remove(uuid);
+        return movingOut.remove(uuid) != null;
     }
 
     /** Called after a player has left and all their data is saved: another node may load them now. */
@@ -589,13 +598,13 @@ public final class Cluster {
             return;
         }
         player.getBukkitEntity().taskScheduler.schedule(entity -> {
-            if (!(entity instanceof net.minecraft.server.level.ServerPlayer p) || p.hasDisconnected()) {
-                return;
+            if (!(entity instanceof net.minecraft.server.level.ServerPlayer p) || p.hasDisconnected() || isMovingOut(p.getUUID())) {
+                return; // gone, or already on the way to another node
             }
+            movingOut.put(p.getUUID(), System.currentTimeMillis());
             server.getPlayerList().playerIo.save(p);
             p.getAdvancements().save();
             p.getStats().save();
-            movingOut.add(p.getUUID());
             final int entityId = p.getId();
             final Thread thread = new Thread(() -> {
                 try {
@@ -603,6 +612,7 @@ public final class Cluster {
                     playersSent.incrementAndGet();
                 } catch (final IOException ex) {
                     LOGGER.warn("Could not confirm the move of {}: {}", p.getPlainTextName(), ex.getMessage());
+                    movingOut.remove(p.getUUID());
                 }
             }, "Storia Cluster transfer");
             thread.setDaemon(true);
