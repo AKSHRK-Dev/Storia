@@ -7,6 +7,12 @@
 
 ## Features
 
+- **One world on several servers: Storia Cluster (Storia, beta)**
+  Folia splits a world across the cores of one machine; Storia splits it across machines. Each **Storia Worker**
+  runs the part of the world where its players are, **Storia Relay** stores the world and decides who runs what,
+  and players move between workers through **Storia Proxy without a loading screen**, keeping their inventory,
+  advancements and statistics. Players who come close are put on the same worker before they could see each
+  other's chunks, and contraptions on a border always run on one worker. See [Storia Cluster](#storia-cluster-beta).
 - **Regionised multithreading (from Folia)**
   Nearby chunks are grouped into independent "regions" that tick in parallel.
   This scales well on large servers where players spread out (SMP, skyblock, etc.).
@@ -38,11 +44,6 @@
   Entity pushing (the cost of mobs crammed together) is about 3x faster with identical results:
   the same entities are pushed in the same order, and cramming damage and its random roll are unchanged.
   Redstone is not modified.
-- **Terrain generation on other machines (Storia)**
-  Run Storia on a second machine as an offload *worker* and the main server sends it the heaviest part of
-  terrain generation (the noise step: terrain shape, caves, aquifers). Results are identical to local
-  generation, and the main server falls back to generating locally whenever a worker is busy, slow or down.
-  See [Offloading terrain generation](#offloading-terrain-generation).
 - **Faster world generation (Storia)**
   Noise sampling and block counting are optimized. Terrain is **identical to vanilla** for the same seed
   (the noise changes are verified bit-for-bit against the original code).
@@ -60,8 +61,8 @@ Download from [Releases](../../releases/latest):
 | File | What it is |
 | --- | --- |
 | `storia-<version>.jar` | The Storia server |
-| `storia-worker-<version>.zip` | [Storia Worker](packaging/worker/README.md): generates terrain for your server on another machine |
-| `storia-relay-<version>.zip` | [Storia Relay](packaging/relay/README.md): hands terrain work to any number of workers |
+| `storia-worker-<version>.zip` | [Storia Worker](packaging/worker/README.md): one server of a Storia Cluster |
+| `storia-relay-<version>.zip` | [Storia Relay](packaging/relay/README.md): the cluster's coordinator (stores the world, decides who runs what) |
 | `storia-proxy-<version>.jar` | [Storia Proxy](https://github.com/AKSHRK-Dev/StoriaProxy): Velocity fork with 50 built-in placeholders |
 
 Versions follow Minecraft: `26.2` is the first Storia release for Minecraft 26.2, and later builds for the same
@@ -116,7 +117,7 @@ player-budget:
 | `/storia pregen start <radius> [world] [x z]` | Pregenerate a square of `radius` blocks around spawn (or x z) | `storia.command.storia` (op) |
 | `/storia budget` | Tick thread usage, heap, and each player's region load, speed and current distances | `storia.command.storia` (op) |
 | `/storia region` | Busiest regions: thread usage, MSPT, TPS, players, chunks, tick guard state and crowded chunks | `storia.command.storia` (op) |
-| `/storia offload` | Offload connections, chunks offloaded, reasons chunks were generated locally | `storia.command.storia` (op) |
+| `/storia cluster` | Cluster connection, cells this worker runs, players, shared time and scoreboard | `storia.command.storia` (op) |
 | `/storia pregen stop` / `resume` / `status` | Stop (progress is saved), resume after a restart, show progress | `storia.command.storia` (op) |
 
 ### Chunk generation speed
@@ -143,49 +144,35 @@ compared (500,000 checks with cramming on and off, 0 differences).
 For normal play (players exploring new terrain), you can raise `chunk-system.worker-threads`
 in `config/paper-global.yml` if your CPU has headroom.
 
-## Offloading terrain generation
+## Storia Cluster (beta)
 
 ```
-server 1 (players, worlds)  --- noise requests --->  server 2 (offload worker)
-  structures, features, light <--- terrain blocks ---   terrain noise
+players --> Storia Proxy --> Storia Worker A --\
+                         \-> Storia Worker B ---> Storia Relay: the world, who runs what
+                          \-> Storia Worker C --/
 ```
 
-1. On server 2, run Storia with **a copy of the same world** (same seed and datapacks), and in `storia.yml`:
+1. **Relay**: `relay.properties` with a `secret` (8+ characters); put your world in `cluster-world/`.
+2. **Workers**: in `storia.yml`
    ```yaml
-   offload:
-     mode: worker
+   cluster:
+     enabled: true
+     coordinator: "relay-host:25590"
+     node-name: worker-1      # unique; the same name as in velocity.toml
      secret: some-long-random-string
-     port: 25590
-     threads: -1        # -1 = all cores
    ```
-2. On server 1:
-   ```yaml
-   offload:
-     mode: client
-     secret: some-long-random-string
-     workers: ["192.168.0.20:25590"]   # several workers are fine
-   ```
-3. `/storia offload` shows the connection, how many chunks were offloaded and why others were generated locally.
+   A new worker needs no copy of the world: it fetches the world settings from the relay on first start.
+   Workers are Velocity backends (`online-mode=false`, `proxies.velocity` in `config/paper-global.yml`).
+3. **Storia Proxy**: list the workers in `velocity.toml` under their node names and set `[cluster]` with the same
+   coordinator and secret in `storia-proxy.toml`.
 
-- On connect, both servers generate the same probe chunks; a dimension is only offloaded if the results match
-  exactly, so a different seed, datapack or build is refused rather than producing different terrain.
-- Only the noise step moves. Structures, features (trees, ores), lighting and everything that ticks stay on
-  server 1, because they depend on neighbouring chunks or must finish within a 50 ms tick.
-- The link is **encrypted and authenticated** (AES-256-GCM with keys derived from the shared secret; the secret
-  itself is never sent). A peer with a different secret is refused on its first message.
-- The easiest way to run a worker is the **Storia Worker** package from Releases (`-Dstoria.worker=true`: no player
-  port, compute only). With a **Storia Relay** in the middle, workers connect to the relay and can join or leave at
-  any time; servers just point `offload.workers` at the relay.
-- `-Dstoria.verifyOffload=true` on server 1 also generates every offloaded chunk locally and compares them.
+`/storia cluster` on a worker and `status` in the relay console show who runs what. Time, weather, game rules,
+the scoreboard, maps, advancements and statistics are shared; `/stop` on a worker moves its players to the others
+first. Seamless moves need Minecraft 26.1/26.2 clients. Full guide: https://storiamc.com/en-us/docs/cluster/ and
+the design in [CLUSTER.md](CLUSTER.md).
 
-Pregenerating 3,721 chunks with server 1 on 3 cores and a worker on 3 other cores:
-
-| | Time |
-| --- | --- |
-| Server 1 alone | 1m 35s |
-| Server 1 + worker | 1m 6s (95% of noise steps offloaded; 0 of 888 verified chunks differed) |
-
-If the worker is killed in the middle, server 1 finishes on its own (the 12 requests in flight were regenerated locally).
+The earlier terrain-only offload (workers that computed terrain noise for one server) was replaced by the
+cluster; its code is kept in the `archive/terrain-offload` branch.
 
 ## Plugin compatibility
 

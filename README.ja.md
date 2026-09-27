@@ -7,6 +7,12 @@
 
 ## 特徴
 
+- **1 つのワールドを複数のサーバーで：Storia Cluster（Storia 独自・ベータ）**
+  Folia は 1 台のマシンの中でワールドを CPU コアごとに分けますが、Storia はそれをマシンごとに分けます。
+  **Storia Worker** がそれぞれプレイヤーのいる場所を動かし、**Storia Relay** がワールドを保管してどこを誰が動かすかを
+  決め、プレイヤーは **Storia Proxy** を通して**読み込み画面なし**でワーカー間を移動します（インベントリ・進捗・統計も
+  そのまま）。近づいたプレイヤーはお互いのチャンクが見える前に同じワーカーにまとめ、境目にある回路は必ず 1 台で
+  動かします。[Storia Cluster](#storia-clusterベータ) を見てください。
 - **リージョン単位のマルチスレッド（Folia 由来）**
   近くにあるチャンクを「リージョン」にまとめ、リージョンごとに並列で tick します。
   プレイヤーが広く散らばる大人数サーバー（SMP・スカイブロックなど）でよく伸びます。
@@ -36,11 +42,6 @@
 - **エンティティの物理演算の高速化（Storia 独自）**
   モブが密集したときの押し合い判定が約3倍速くなります。押す相手・順番・窒息ダメージ（乱数を含む）は
   バニラと完全に同じです。レッドストーンには手を加えていません。
-- **地形生成を別のマシンに任せる（Storia 独自）**
-  2台目のマシンで Storia を「ワーカー」として動かすと、メインサーバーは地形生成で一番重い部分
-  （ノイズ段階：地形の形・洞窟・帯水層）をそちらに任せます。結果は自分で生成した場合と同じです。
-  ワーカーが混んでいる・遅い・落ちているときは、自動でメインサーバーが自分で生成します。
-  [地形生成を別のマシンに任せる](#地形生成を別のマシンに任せる) を参照してください。
 - **ワールド生成の高速化（Storia 独自）**
   ノイズ計算とブロック数の数え方を最適化しています。同じシードなら**地形はバニラと完全に同じ**です
   （ノイズの変更は、元のコードと出力がビット単位で一致することを確認済み）。
@@ -58,8 +59,8 @@ java -Xmx8G -jar storia-26.2.jar nogui
 | ファイル | 内容 |
 | --- | --- |
 | `storia-<version>.jar` | Storia サーバー本体 |
-| `storia-worker-<version>.zip` | [Storia Worker](packaging/worker/README.md)：別のマシンで地形生成を手伝う |
-| `storia-relay-<version>.zip` | [Storia Relay](packaging/relay/README.md)：複数のワーカーに仕事を配る |
+| `storia-worker-<version>.zip` | [Storia Worker](packaging/worker/README.md)：Storia Cluster のサーバー 1 台分 |
+| `storia-relay-<version>.zip` | [Storia Relay](packaging/relay/README.md)：Cluster のまとめ役（ワールドを保管し、どこを誰が動かすかを決める） |
 | `storia-proxy-<version>.jar` | [Storia Proxy](https://github.com/AKSHRK-Dev/StoriaProxy)：プレースホルダー 50 個入りの Velocity フォーク |
 
 バージョンは Minecraft に合わせています。`26.2` は Minecraft 26.2 向けの最初のリリースで、同じ Minecraft バージョンの
@@ -114,7 +115,7 @@ player-budget:
 | `/storia pregen start <半径> [ワールド] [x z]` | スポーン（または x z）を中心に、半径（ブロック）の正方形を事前生成 | `storia.command.storia`（OP） |
 | `/storia budget` | tick スレッドの使用率・ヒープ・各プレイヤーのリージョンの負荷・速度・今の距離 | `storia.command.storia`（OP） |
 | `/storia region` | 重いリージョン一覧（スレッド使用率・MSPT・TPS・人数・チャンク数・Tick Guard の状態・密集チャンク） | `storia.command.storia`（OP） |
-| `/storia offload` | ワーカーとの接続・任せたチャンク数・自分で生成した理由 | `storia.command.storia`（OP） |
+| `/storia cluster` | Cluster との接続、このワーカーが動かしているセル、プレイヤー、共有している時刻とスコアボード | `storia.command.storia`（OP） |
 | `/storia pregen stop` / `resume` / `status` | 停止（進み具合は保存）／再起動後に再開／進み具合を表示 | `storia.command.storia`（OP） |
 
 ### チャンク生成の速さ
@@ -141,49 +142,35 @@ player-budget:
 通常のプレイ中（プレイヤーが新しい場所を探索するとき）も、CPU に余裕があれば
 `config/paper-global.yml` の `chunk-system.worker-threads` を増やすと速くなります。
 
-## 地形生成を別のマシンに任せる
+## Storia Cluster（ベータ）
 
 ```
-サーバー①（プレイヤー・ワールド） ── ノイズの依頼 ──▶ サーバー②（ワーカー）
-  構造物・装飾・光                ◀── 地形のブロック ──   地形ノイズの計算
+プレイヤー --> Storia Proxy --> Storia Worker A --\
+                            \-> Storia Worker B ---> Storia Relay：ワールドと、どこを誰が動かすか
+                             \-> Storia Worker C --/
 ```
 
-1. サーバー②で、**同じワールドのコピー**（同じシード・データパック）を使って Storia を起動し、`storia.yml` を次のようにします：
+1. **Relay**：`relay.properties` に `secret`（8 文字以上）を設定し、ワールドを `cluster-world/` に置きます。
+2. **ワーカー**：`storia.yml` に
    ```yaml
-   offload:
-     mode: worker
-     secret: 長くてランダムな文字列
-     port: 25590
-     threads: -1        # -1 = 全コア
+   cluster:
+     enabled: true
+     coordinator: "relay-host:25590"
+     node-name: worker-1      # ワーカーごとに別の名前。velocity.toml の名前と同じにする
+     secret: 長い合言葉
    ```
-2. サーバー①：
-   ```yaml
-   offload:
-     mode: client
-     secret: 長くてランダムな文字列
-     workers: ["192.168.0.20:25590"]   # 複数でも OK
-   ```
-3. `/storia offload` で、接続状態・任せたチャンク数・自分で生成した理由を確認できます。
+   新しいワーカーにワールドのコピーは要りません。初回起動時に Relay からワールドの設定を取り寄せます。
+   ワーカーは Velocity のバックエンドとして設定します（`online-mode=false`、`config/paper-global.yml` の `proxies.velocity`）。
+3. **Storia Proxy**：`velocity.toml` にワーカーを node-name と同じ名前で登録し、`storia-proxy.toml` の `[cluster]` に
+   同じ coordinator と secret を設定します。
 
-- 接続時に両方のサーバーで同じ試験用チャンクを生成し、結果が完全に一致したディメンションだけを任せます。
-  シード・データパック・ビルドが違う場合は、違う地形を作る代わりに接続を断ります。
-- 任せるのはノイズ段階だけです。構造物・装飾（木・鉱石）・光・tick するものはすべてサーバー①に残ります。
-  隣のチャンクに依存するか、50ms の tick 内に終わらせる必要があるためです。
-- 通信は**暗号化・認証されています**（合言葉から作った鍵で AES-256-GCM。合言葉そのものは送りません）。
-  合言葉が違う相手は、最初のメッセージで接続を断ります。
-- ワーカーは Releases の **Storia Worker** パックを使うのが簡単です（`-Dstoria.worker=true`：プレイヤー用のポートを
-  開かず、計算だけをします）。間に **Storia Relay** を置くと、ワーカーは Relay につなぎに行くので、いつでも追加・削除
-  できます。サーバー側は `offload.workers` に Relay のアドレスを書くだけです。
-- サーバー①を `-Dstoria.verifyOffload=true` で起動すると、任せたチャンクを自分でも生成して比べます。
+ワーカーの `/storia cluster` と Relay のコンソールの `status` で、どこを誰が動かしているかを確認できます。時刻・天気・
+ゲームルール・スコアボード・地図・進捗・統計は共有され、ワーカーで `/stop` すると先にプレイヤーをほかのワーカーへ
+移します。読み込み画面なしの移動は Minecraft 26.1・26.2 のクライアントが対象です。詳しいガイド：
+https://storiamc.com/ja-jp/docs/cluster/ 、設計は [CLUSTER.md](CLUSTER.md)。
 
-サーバー①に3コア、ワーカーに別の3コアを割り当てて 3,721 チャンクを事前生成した結果：
-
-| | 時間 |
-| --- | --- |
-| サーバー①だけ | 1分35秒 |
-| サーバー①＋ワーカー | 1分6秒（ノイズ段階の 95% を任せた。検証した 888 チャンクの差分は 0） |
-
-途中でワーカーを強制終了しても、サーバー①が最後まで生成しました（処理中だった 12 件は自分で生成し直し）。
+以前の「地形生成だけを別のマシンに任せる」機能は Cluster に置き換わりました。コードは `archive/terrain-offload`
+ブランチに残しています。
 
 ## プラグインの互換性
 
