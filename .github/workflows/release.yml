@@ -90,6 +90,8 @@ jobs:
           All offload traffic is encrypted and authenticated with your shared secret.
           NOTES
           sed -i 's/^          //' notes.md
+          # what is new in this release, if written down
+          if [ -f "release-notes/$V.md" ]; then printf '\n' >> notes.md; cat "release-notes/$V.md" >> notes.md; fi
 
       - name: Publish release
         env:

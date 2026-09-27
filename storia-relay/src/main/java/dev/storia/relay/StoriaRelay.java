@@ -84,8 +84,9 @@ public final class StoriaRelay {
                     in-flight-per-thread=4
                     # Give up on a worker's answer after this long (the server then generates the chunk itself).
                     timeout-ms=20000
-                    # Storia Cluster (in development): several Storia nodes share one world stored here.
-                    # Nodes: cluster.enabled: true and cluster.coordinator: "<this host>:<port>" in storia.yml.
+                    # Storia Cluster (beta): several Storia nodes share one world stored in cluster-world.
+                    # Nodes: cluster.enabled, cluster.coordinator: "<this host>:<port>", cluster.node-name and
+                    # cluster.secret in storia.yml. Guide: https://storiamc.com/en-us/docs/cluster/
                     cluster=false
                     cluster-world=cluster-world
                     """);
