@@ -41,8 +41,8 @@ import org.slf4j.Logger;
  * <p>With {@code cluster.enabled: true}, this node keeps no world data of its own: chunk, entity and POI records
  * and player data are read from and written to the coordinator (Storia Relay with {@code cluster=true}). Before
  * writing a cell (one region file) the node must own it; the coordinator grants each cell to one node at a time.
- * Cells this node cannot get are "foreign": they are shown as last saved, never written, and
- * {@link ClusterGuard} keeps players far enough away that they do not tick here.
+ * Cells this node cannot get are "foreign": they are shown as last saved and never written. The coordinator
+ * merges players' areas onto one node long before anyone gets close to a foreign cell.
  */
 public final class Cluster {
 
@@ -357,7 +357,6 @@ public final class Cluster {
     private static void maintenanceLoop() {
         long lastHeartbeat = 0L;
         long lastSweep = System.currentTimeMillis();
-        long lastGuard = 0L;
         while (true) {
             try {
                 Thread.sleep(250L);
@@ -370,10 +369,6 @@ public final class Cluster {
                     heartbeat();
                     ClusterGlobal.tick(client);
                     ClusterScoreboard.tick(client);
-                }
-                if (now - lastGuard >= 1000L) {
-                    lastGuard = now;
-                    ClusterGuard.checkAll();
                 }
                 if (now - lastSweep >= (evicting.isEmpty() ? 5000L : 1000L)) {
                     lastSweep = now;
@@ -442,7 +437,6 @@ public final class Cluster {
             if (response.status() == ClusterProtocol.OK) {
                 player.setId(Integer.parseInt(ClusterProtocol.readString(response.body())));
                 movedIn.add(player.getUUID());
-                ClusterGuard.arrived(player.getUUID());
             }
         } catch (final IOException ex) {
             LOGGER.warn("Could not ask the coordinator about {}: {}", player.getGameProfile().name(), ex.getMessage());
