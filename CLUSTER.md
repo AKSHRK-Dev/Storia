@@ -24,8 +24,7 @@ Done 2026-09-27: Cluster is folded into Storia Worker instead of adding a new pr
 - The terrain-only mode (noise offload, `-Dstoria.worker=true`) is removed and archived in the
   `archive/terrain-offload` branch (both repositories): a worker now needs the
   CPU and RAM of a normal Storia server. The code stays in the git history and in the releases that include it.
-- Releases before the first Cluster release (26.2, 26.2-1-beta) do not support Cluster; the website says so on
-  the downloads page (`CLUSTER_SINCE` in StoriaSite/build.py marks the first release with it).
+- Releases before the first Cluster release (26.2, 26.2-1-beta) do not include Cluster.
 
 ## Principles
 
