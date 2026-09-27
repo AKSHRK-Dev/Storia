@@ -10,6 +10,14 @@ merging on view areas: areas merge before a player could see another node's chun
 other nodes first; strict player data handover). Still open: a shared API for plugins, a real-client check. Goal: several Storia servers ("nodes") run **one** world together, each ticking a
 different part of it, with automatic placement and seamless movement for players.
 
+## After Cluster is complete
+
+- Storia Worker (noise offload to other machines) will be removed and archived: Cluster spreads all chunk work,
+  new and existing, over full nodes, so a separate terrain-only helper is no longer needed. The code stays
+  available in the git history and the last releases that include it.
+- Releases before the first Cluster release (26.2, 26.2-1-beta) do not support Cluster; the website says so on
+  the downloads page (`CLUSTER_SINCE` in StoriaSite/build.py marks the first release with it).
+
 ## Principles
 
 1. **Folia regions, lifted to machines.** Folia already groups nearby ticking chunks into regions that never
