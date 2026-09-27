@@ -87,6 +87,8 @@ public final class SecureChannel implements Closeable {
             throw new IOException("secret must be at least 8 characters");
         }
         socket.setTcpNoDelay(true);
+        // a peer that connects and then says nothing must not hold a thread forever
+        socket.setSoTimeout(10_000);
         final DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream(), 64 * 1024));
         final DataOutputStream out = new DataOutputStream(new BufferedOutputStream(socket.getOutputStream(), 64 * 1024));
         final byte[] ownNonce = new byte[32];
@@ -111,7 +113,9 @@ public final class SecureChannel implements Closeable {
             final byte[] prk = hmac(psk(secret), concat(initiatorNonce, responderNonce));
             final byte[] i2r = hmac(prk, "i2r".getBytes(StandardCharsets.US_ASCII));
             final byte[] r2i = hmac(prk, "r2i".getBytes(StandardCharsets.US_ASCII));
-            return new SecureChannel(socket, in, out, initiator ? i2r : r2i, initiator ? r2i : i2r, compress);
+            final SecureChannel channel = new SecureChannel(socket, in, out, initiator ? i2r : r2i, initiator ? r2i : i2r, compress);
+            socket.setSoTimeout(0);
+            return channel;
         } catch (final GeneralSecurityException ex) {
             throw new IOException("crypto setup failed", ex);
         }

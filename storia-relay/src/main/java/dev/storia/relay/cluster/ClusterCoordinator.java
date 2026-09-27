@@ -21,7 +21,7 @@ import java.util.regex.Pattern;
 /**
  * Storia Cluster coordinator: the source of truth for a world shared by several Storia nodes.
  *
- * <p>It stores chunk, entity and POI records in Anvil region files, stores player data, and decides which node
+ * <p>It stores chunk, entity and POI records in Anvil region files, stores player data, and decides which worker
  * owns each cell (one region file of one dimension). Only a cell's owner may write it. A released cell is
  * held back from other nodes for {@link #RELEASE_QUIET_MILLIS}, so writes still in flight from the old owner
  * land before anyone else reads the cell. A node that stops sending heartbeats loses its cells.
@@ -662,7 +662,7 @@ public final class ClusterCoordinator {
             .ifPresent(c -> this.moveComponent(c, light, "balancing " + heavy + " -> " + light));
     }
 
-    /** A shared data file: only map and command storage files under data/, nothing else. */
+    /** A shared data file: only maps, command storage and the scoreboard under data/, nothing else. */
     private Path dataFile(final String relative) throws IOException {
         if (!relative.matches("data/[a-z0-9_.-]+/(map_[0-9]+|command_storage_[a-z0-9_.-]+|scoreboard)\\.dat")) {
             throw new IOException("not a shared data file: " + relative);
@@ -718,7 +718,6 @@ public final class ClusterCoordinator {
         return n == null ? Double.MAX_VALUE : n.lastStats.players();
     }
 
-    /** Moves every player in the component to {@code target} and asks the other nodes to let go of its cells. */
     /**
      * The player has been handed to another node already: the old node still reports them for a few seconds while
      * the proxy switches the connection over, and must not get a second move for them.
@@ -728,6 +727,7 @@ public final class ClusterCoordinator {
         return holder != null && !holder.equals(node);
     }
 
+    /** Moves every player in the component to {@code target} and asks the other nodes to let go of its cells. */
     private void moveComponent(final Component component, final String target, final String why) {
         for (final Node node : this.nodes.values()) {
             if (node.name.equals(target) || !component.players().containsKey(node.name)) {
@@ -774,7 +774,10 @@ public final class ClusterCoordinator {
              java.util.stream.Stream<Path> files = java.nio.file.Files.walk(this.world)) {
             for (final Path file : (Iterable<Path>) files::iterator) {
                 final Path relative = this.world.relativize(file);
-                boolean skip = relative.toString().isEmpty() || java.nio.file.Files.isDirectory(file) || file.getFileName().toString().equals("session.lock");
+                final String fileName = file.getFileName().toString();
+                // the relay's own files and files being written are not part of the world
+                boolean skip = relative.toString().isEmpty() || java.nio.file.Files.isDirectory(file) || fileName.equals("session.lock")
+                    || fileName.startsWith("storia-cluster-") || fileName.endsWith(".tmp");
                 for (final Path part : relative) {
                     skip |= NOT_BASE.contains(part.toString());
                 }

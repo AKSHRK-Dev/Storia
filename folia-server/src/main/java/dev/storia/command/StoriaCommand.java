@@ -44,7 +44,12 @@ public final class StoriaCommand extends Command {
             case "pregen" -> this.pregen(sender, args);
             case "budget" -> this.budget(sender);
             case "region" -> this.regions(sender);
-            case "cluster" -> dev.storia.cluster.Cluster.status().forEach(line -> sender.sendMessage(text(line, NamedTextColor.WHITE)));
+            case "cluster" -> {
+                // asks the coordinator over the network: never on a region thread
+                final Thread thread = new Thread(() -> dev.storia.cluster.Cluster.status().forEach(line -> sender.sendMessage(text(line, NamedTextColor.WHITE))), "Storia cluster status");
+                thread.setDaemon(true);
+                thread.start();
+            }
             default -> sender.sendMessage(text("Usage: " + this.usageMessage, NamedTextColor.RED));
         }
         return true;

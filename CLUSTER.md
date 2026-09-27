@@ -1,13 +1,11 @@
 # Storia Cluster (design)
 
-Status: in development. Done: phase 1 (shared world, ownership, contraption links, local spool for coordinator
-outages, re-claim after coordinator restarts) and phase 2 (placement by activity, merging, balancing, player
-transfers with data handover through Storia Proxy; verified: items survive repeated moves) and phase 3 (seamless
-switching for 26.1/26.2 clients: no login, respawn or configuration packets on a move, same entity id, old
-entities removed; verified with protocol-level bots, a real client check is still to do), phase 4 (replaced by
-merging on view areas: areas merge before a player could see another node's chunks) and most of phase 5
-(advancements, statistics, time, weather, game rules, scoreboard, map ids and map data; /stop hands players to
-other nodes first; strict player data handover). Still open: a shared API for plugins, a real-client check. Goal: several Storia servers ("nodes") run **one** world together, each ticking a
+Status: shipped in Storia 26.2-2 (tested as 26.2-2-beta and 26.2-3-beta). Done: shared world, ownership,
+contraption links, local spool for coordinator outages, re-claim after coordinator restarts; placement by view
+areas, merging, balancing, player transfers with strict data handover; seamless switching for 26.1/26.2 clients
+(verified with protocol-level bots and a real 26.2 client); shared advancements, statistics, time, weather, game
+rules, scoreboard, map ids and maps; /stop hands players to other workers first; players whose data cannot be read
+are refused instead of overwriting it. Still open: a shared API for plugins. Goal: several Storia servers ("nodes") run **one** world together, each ticking a
 different part of it, with automatic placement and seamless movement for players.
 
 ## Storia Worker is a cluster node
@@ -24,7 +22,7 @@ Done 2026-09-27: Cluster is folded into Storia Worker instead of adding a new pr
 - The terrain-only mode (noise offload, `-Dstoria.worker=true`) is removed and archived in the
   `archive/terrain-offload` branch (both repositories): a worker now needs the
   CPU and RAM of a normal Storia server. The code stays in the git history and in the releases that include it.
-- Releases before the first Cluster release (26.2, 26.2-1-beta) do not include Cluster.
+- The first 26.2 release and 26.2-1-beta do not include Cluster.
 
 ## Principles
 

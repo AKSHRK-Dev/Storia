@@ -7,12 +7,12 @@
 
 ## Features
 
-- **One world on several servers: Storia Cluster (Storia, beta)**
+- **One world on several servers: Storia Cluster (Storia)**
   Folia splits a world across the cores of one machine; Storia splits it across machines. Each **Storia Worker**
   runs the part of the world where its players are, **Storia Relay** stores the world and decides who runs what,
   and players move between workers through **Storia Proxy without a loading screen**, keeping their inventory,
   advancements and statistics. Players who come close are put on the same worker before they could see each
-  other's chunks, and contraptions on a border always run on one worker. See [Storia Cluster](#storia-cluster-beta).
+  other's chunks, and contraptions on a border always run on one worker. See [Storia Cluster](#storia-cluster).
 - **Regionised multithreading (from Folia)**
   Nearby chunks are grouped into independent "regions" that tick in parallel.
   This scales well on large servers where players spread out (SMP, skyblock, etc.).
@@ -144,7 +144,7 @@ compared (500,000 checks with cramming on and off, 0 differences).
 For normal play (players exploring new terrain), you can raise `chunk-system.worker-threads`
 in `config/paper-global.yml` if your CPU has headroom.
 
-## Storia Cluster (beta)
+## Storia Cluster
 
 ```
 players --> Storia Proxy --> Storia Worker A --\

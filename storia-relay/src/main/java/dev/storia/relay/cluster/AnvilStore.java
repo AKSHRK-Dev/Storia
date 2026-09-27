@@ -48,15 +48,35 @@ public final class AnvilStore implements AutoCloseable {
     }
 
     public byte[] read(final ClusterProtocol.ChunkKey key) throws IOException {
-        final Region region = this.region(key, false);
-        return region == null ? null : region.read(key.x() & 31, key.z() & 31, key.x(), key.z());
+        while (true) {
+            final Region region = this.region(key, false);
+            try {
+                return region == null ? null : region.read(key.x() & 31, key.z() & 31, key.x(), key.z());
+            } catch (final RegionClosedException ex) {
+                // closed to make room for another region file between region() and read(): open it again
+            }
+        }
     }
 
     /** Writes a record, or deletes it when {@code record} is null. */
     public void write(final ClusterProtocol.ChunkKey key, final byte[] record) throws IOException {
-        final Region region = this.region(key, record != null);
-        if (region != null) {
-            region.write(key.x() & 31, key.z() & 31, key.x(), key.z(), record);
+        while (true) {
+            final Region region = this.region(key, record != null);
+            try {
+                if (region != null) {
+                    region.write(key.x() & 31, key.z() & 31, key.x(), key.z(), record);
+                }
+                return;
+            } catch (final RegionClosedException ex) {
+                // closed to make room for another region file between region() and write(): open it again
+            }
+        }
+    }
+
+    /** The region file was closed by another thread while this one was about to use it. */
+    private static final class RegionClosedException extends IOException {
+        RegionClosedException() {
+            super("region file closed");
         }
     }
 
@@ -134,6 +154,9 @@ public final class AnvilStore implements AutoCloseable {
         }
 
         synchronized byte[] read(final int localX, final int localZ, final int chunkX, final int chunkZ) throws IOException {
+            if (this.closed) {
+                throw new RegionClosedException();
+            }
             final int location = this.locations[localX + localZ * 32];
             if (location == 0) {
                 return null;
@@ -167,6 +190,9 @@ public final class AnvilStore implements AutoCloseable {
         }
 
         synchronized void write(final int localX, final int localZ, final int chunkX, final int chunkZ, final byte[] record) throws IOException {
+            if (this.closed) {
+                throw new RegionClosedException();
+            }
             final int index = localX + localZ * 32;
             final int oldLocation = this.locations[index];
             final Path external = this.folder.resolve("c." + chunkX + "." + chunkZ + ".mcc");

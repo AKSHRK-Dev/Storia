@@ -38,8 +38,8 @@ import org.slf4j.Logger;
 /**
  * Storia Cluster, node side (phase 1: a shared world).
  *
- * <p>With {@code cluster.enabled: true}, this node keeps no world data of its own: chunk, entity and POI records
- * and player data are read from and written to the coordinator (Storia Relay with {@code cluster=true}). Before
+ * <p>With {@code cluster.enabled: true}, this node (a Storia Worker) keeps no world data of its own: chunk, entity
+ * and POI records and player data are read from and written to the coordinator (Storia Relay). Before
  * writing a cell (one region file) the node must own it; the coordinator grants each cell to one node at a time.
  * Cells this node cannot get are "foreign": they are shown as last saved and never written. The coordinator
  * merges players' areas onto one node long before anyone gets close to a foreign cell.
@@ -65,11 +65,16 @@ public final class Cluster {
     /** Cells the coordinator asked us to hand over: released as soon as they are unloaded and saved. */
     private static final Set<Cell> evicting = ConcurrentHashMap.newKeySet();
     static final AtomicLong playersSent = new AtomicLong();
-    /** Players leaving for another node / arriving from one: no quit or join message for them. */
     /** Players being handed to another node, and since when; a move that has not finished in 30 s may be retried. */
     private static final Map<java.util.UUID, Long> movingOut = new ConcurrentHashMap<>();
     private static final long MOVE_TIMEOUT_MILLIS = 30000L;
+    /** Players arriving from another node: no join message for them. */
     private static final Set<java.util.UUID> movedIn = ConcurrentHashMap.newKeySet();
+    /**
+     * Player data and shared data files that could not be read from the coordinator. Until they are read, writes to
+     * them are refused, so a failed read (empty data in memory) never overwrites the real data.
+     */
+    private static final Set<String> unreadable = ConcurrentHashMap.newKeySet();
 
     static final AtomicLong reads = new AtomicLong();
     static final AtomicLong writes = new AtomicLong();
@@ -346,11 +351,6 @@ public final class Cluster {
         owned.computeIfPresent(cell, (c, t) -> System.currentTimeMillis());
     }
 
-    /** Whether the cell is foreign (owned by another node) as far as this node knows. */
-    public static boolean isForeign(final String dimension, final int chunkX, final int chunkZ) {
-        return foreign.containsKey(Cell.of(dimension, chunkX, chunkZ));
-    }
-
     /** Makes sure this node owns the cell. Returns false if another node owns it. */
     static boolean claim(final Cell cell) throws IOException {
         if (owned.containsKey(cell)) {
@@ -376,7 +376,7 @@ public final class Cluster {
                 }
                 case ClusterProtocol.DENIED -> {
                     if (foreign.put(cell, System.currentTimeMillis()) == null) {
-                        LOGGER.info("Cluster: {} is run by node {}; players here are kept away from it", cell, ClusterProtocol.readString(response.body()));
+                        LOGGER.info("Cluster: {} is run by node {}; it is shown here as last saved", cell, ClusterProtocol.readString(response.body()));
                     }
                     return false;
                 }
@@ -567,13 +567,30 @@ public final class Cluster {
         return client != null && relative.matches("data/[a-z0-9_.-]+/(map_[0-9]+|command_storage_[a-z0-9_.-]+|scoreboard)\\.dat");
     }
 
+    /** A shared data file, or null if the coordinator has none. Throws if it could not be read. */
     public static byte[] readData(final String relative) throws IOException {
-        final ClusterProtocol.Response response = client.request(ClusterProtocol.OP_DATA_READ, ClusterProtocol.player(relative, "data", null));
-        return response.status() == ClusterProtocol.OK ? response.body() : null;
+        final String key = "d " + relative;
+        try {
+            final ClusterProtocol.Response response = client.request(ClusterProtocol.OP_DATA_READ, ClusterProtocol.player(relative, "data", null));
+            if (response.status() == ClusterProtocol.OK || response.status() == ClusterProtocol.NOT_FOUND) {
+                unreadable.remove(key);
+                return response.status() == ClusterProtocol.OK ? response.body() : null;
+            }
+            throw new IOException("cluster data read failed: " + ClusterProtocol.readString(response.body()));
+        } catch (final IOException ex) {
+            unreadable.add(key);
+            throw ex;
+        }
     }
 
     public static void writeData(final String relative, final byte[] data) throws IOException {
-        client.request(ClusterProtocol.OP_DATA_WRITE, ClusterProtocol.player(relative, "data", data));
+        if (unreadable.contains("d " + relative)) {
+            throw new IOException(relative + " could not be read from the coordinator, so it is not overwritten");
+        }
+        final ClusterProtocol.Response response = client.request(ClusterProtocol.OP_DATA_WRITE, ClusterProtocol.player(relative, "data", data));
+        if (response.status() != ClusterProtocol.OK) {
+            throw new IOException("cluster data write failed: " + ClusterProtocol.readString(response.body()));
+        }
     }
 
     /** Next map id, unique across the cluster. */
@@ -761,32 +778,46 @@ public final class Cluster {
     // Player data
     // ---------------------------------------------------------------------------------------------
 
+    /** A player's data, advancements or statistics; null for a new player. Throws if they could not be read. */
     public static byte[] readPlayer(final String uuid, final String kind) throws IOException {
         final java.util.Optional<byte[]> spooled = spool.latest("p " + uuid + " " + kind);
         if (spooled != null) {
             return spooled.orElse(null);
         }
-        // If the player is still on another node, wait until it has saved them for the last time.
-        final long deadline = System.currentTimeMillis() + 10_000L;
-        ClusterProtocol.Response response = client.request(ClusterProtocol.OP_PLAYER_READ, ClusterProtocol.player(uuid, kind, null));
-        while (response.status() == ClusterProtocol.WAIT) {
-            if (System.currentTimeMillis() > deadline) {
-                LOGGER.warn("Storia Cluster: node {} did not let go of player {} within 10 s; loading the last saved data", ClusterProtocol.readString(response.body()), uuid);
-                response = client.request(ClusterProtocol.OP_PLAYER_READ, ClusterProtocol.player(uuid, kind, "force".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
-                break;
+        final String key = "p " + uuid + " " + kind;
+        try {
+            // If the player is still on another node, wait until it has saved them for the last time.
+            final long deadline = System.currentTimeMillis() + 10_000L;
+            ClusterProtocol.Response response = client.request(ClusterProtocol.OP_PLAYER_READ, ClusterProtocol.player(uuid, kind, null));
+            while (response.status() == ClusterProtocol.WAIT) {
+                if (System.currentTimeMillis() > deadline) {
+                    LOGGER.warn("Storia Cluster: node {} did not let go of player {} within 10 s; loading the last saved data", ClusterProtocol.readString(response.body()), uuid);
+                    response = client.request(ClusterProtocol.OP_PLAYER_READ, ClusterProtocol.player(uuid, kind, "force".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+                    break;
+                }
+                try {
+                    Thread.sleep(250L);
+                } catch (final InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("interrupted", ex);
+                }
+                response = client.request(ClusterProtocol.OP_PLAYER_READ, ClusterProtocol.player(uuid, kind, null));
             }
-            try {
-                Thread.sleep(250L);
-            } catch (final InterruptedException ex) {
-                Thread.currentThread().interrupt();
-                throw new IOException("interrupted", ex);
+            if (response.status() != ClusterProtocol.OK && response.status() != ClusterProtocol.NOT_FOUND) {
+                throw new IOException("cluster player read failed: " + ClusterProtocol.readString(response.body()));
             }
-            response = client.request(ClusterProtocol.OP_PLAYER_READ, ClusterProtocol.player(uuid, kind, null));
+            unreadable.remove(key);
+            return response.status() == ClusterProtocol.OK ? response.body() : null;
+        } catch (final IOException ex) {
+            unreadable.add(key);
+            throw ex;
         }
-        return response.status() == ClusterProtocol.OK ? response.body() : null;
     }
 
     public static void writePlayer(final String uuid, final String kind, final byte[] data) throws IOException {
+        if (unreadable.contains("p " + uuid + " " + kind)) {
+            throw new IOException("the " + kind + " of " + uuid + " could not be read from the coordinator, so they are not overwritten");
+        }
         final byte[] body = ClusterProtocol.player(uuid, kind, data);
         final ClusterProtocol.Response response;
         try {

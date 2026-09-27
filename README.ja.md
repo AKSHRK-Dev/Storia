@@ -7,12 +7,12 @@
 
 ## 特徴
 
-- **1 つのワールドを複数のサーバーで：Storia Cluster（Storia 独自・ベータ）**
+- **1 つのワールドを複数のサーバーで：Storia Cluster（Storia 独自）**
   Folia は 1 台のマシンの中でワールドを CPU コアごとに分けますが、Storia はそれをマシンごとに分けます。
   **Storia Worker** がそれぞれプレイヤーのいる場所を動かし、**Storia Relay** がワールドを保管してどこを誰が動かすかを
   決め、プレイヤーは **Storia Proxy** を通して**読み込み画面なし**でワーカー間を移動します（インベントリ・進捗・統計も
   そのまま）。近づいたプレイヤーはお互いのチャンクが見える前に同じワーカーにまとめ、境目にある回路は必ず 1 台で
-  動かします。[Storia Cluster](#storia-clusterベータ) を見てください。
+  動かします。[Storia Cluster](#storia-cluster) を見てください。
 - **リージョン単位のマルチスレッド（Folia 由来）**
   近くにあるチャンクを「リージョン」にまとめ、リージョンごとに並列で tick します。
   プレイヤーが広く散らばる大人数サーバー（SMP・スカイブロックなど）でよく伸びます。
@@ -142,7 +142,7 @@ player-budget:
 通常のプレイ中（プレイヤーが新しい場所を探索するとき）も、CPU に余裕があれば
 `config/paper-global.yml` の `chunk-system.worker-threads` を増やすと速くなります。
 
-## Storia Cluster（ベータ）
+## Storia Cluster
 
 ```
 プレイヤー --> Storia Proxy --> Storia Worker A --\

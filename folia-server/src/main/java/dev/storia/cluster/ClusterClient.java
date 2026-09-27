@@ -42,6 +42,12 @@ final class ClusterClient {
     private volatile SecureChannel channel;
     private volatile int index = -1;
     private volatile boolean closed;
+    /** Pushes are handled one at a time, in the order they arrived (scoreboard and time changes must not reorder). */
+    private final java.util.concurrent.ExecutorService pushes = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        final Thread thread = new Thread(r, "Storia Cluster push");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     ClusterClient(final Address coordinator, final String secret, final String name) {
         this.coordinator = coordinator;
@@ -108,9 +114,7 @@ final class ClusterClient {
                 final byte[] message = channel.receive();
                 if (ClusterProtocol.type(message) == ClusterProtocol.PUSH) {
                     final ClusterProtocol.Push push = ClusterProtocol.readPush(message);
-                    final Thread handler = new Thread(() -> Cluster.onPush(push), "Storia Cluster push");
-                    handler.setDaemon(true);
-                    handler.start();
+                    this.pushes.execute(() -> Cluster.onPush(push));
                 } else if (ClusterProtocol.type(message) == ClusterProtocol.RESPONSE) {
                     final ClusterProtocol.Response response = ClusterProtocol.readResponse(message);
                     final CompletableFuture<ClusterProtocol.Response> future = this.pending.remove(response.id());

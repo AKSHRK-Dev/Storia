@@ -98,7 +98,7 @@ index 63b40c420030d935bb81a219fb33defe0946e21f..06787c98d2d54ee9d8aa351e74a1de92
              RegionFile region = this.getRegionFile(pos, value == null); // CraftBukkit // Paper - rewrite chunk system
              // Paper start - rewrite chunk system
 diff --git a/net/minecraft/world/level/storage/PlayerDataStorage.java b/net/minecraft/world/level/storage/PlayerDataStorage.java
-index eddb6ebe3fa50a818e54079b73ba117be0abd195..1ae8725c29c0a57b94ee32f9c16cbdd75353f41f 100644
+index eddb6ebe3fa50a818e54079b73ba117be0abd195..5ed67b1fff8f4af02099defd23b0bf07c518ad61 100644
 --- a/net/minecraft/world/level/storage/PlayerDataStorage.java
 +++ b/net/minecraft/world/level/storage/PlayerDataStorage.java
 @@ -38,6 +38,7 @@ public class PlayerDataStorage {
@@ -109,7 +109,7 @@ index eddb6ebe3fa50a818e54079b73ba117be0abd195..1ae8725c29c0a57b94ee32f9c16cbdd7
              NbtIo.writeCompressed(dataToStore, tmpFile);
              Path realFile = playerDirPath.resolve(player.getStringUUID() + ".dat");
              Path oldFile = playerDirPath.resolve(player.getStringUUID() + ".dat_old");
-@@ -62,6 +63,17 @@ public class PlayerDataStorage {
+@@ -62,6 +63,18 @@ public class PlayerDataStorage {
      }
  
      private Optional<CompoundTag> load(final NameAndId nameAndId, final String suffix) {
@@ -119,8 +119,9 @@ index eddb6ebe3fa50a818e54079b73ba117be0abd195..1ae8725c29c0a57b94ee32f9c16cbdd7
 +            try {
 +                return Optional.ofNullable(dev.storia.cluster.Cluster.readPlayerTag(nameAndId.id().toString()));
 +            } catch (final java.io.IOException ex) {
++                // never let them in with empty data: the next save would overwrite their real data
 +                LOGGER.warn("Failed to load player data for {} from the cluster", nameAndId.name(), ex);
-+                return Optional.empty();
++                throw new IllegalStateException("Could not load the player data of " + nameAndId.name() + " from the Storia Cluster coordinator; try again in a moment", ex);
 +            }
 +        }
 +        // Storia end - cluster
