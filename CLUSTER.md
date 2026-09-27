@@ -10,11 +10,18 @@ merging on view areas: areas merge before a player could see another node's chun
 other nodes first; strict player data handover). Still open: a shared API for plugins, a real-client check. Goal: several Storia servers ("nodes") run **one** world together, each ticking a
 different part of it, with automatic placement and seamless movement for players.
 
-## After Cluster is complete
+## Storia Worker becomes a cluster node
 
-- Storia Worker (noise offload to other machines) will be removed and archived: Cluster spreads all chunk work,
-  new and existing, over full nodes, so a separate terrain-only helper is no longer needed. The code stays
-  available in the git history and the last releases that include it.
+Decided 2026-09-27: Cluster is folded into Storia Worker instead of adding a new program.
+
+- **Storia Worker = a node that runs part of the world**: existing chunks, mobs, redstone and the players in
+  that part, not only the noise step of new chunks. Players reach it through Storia Proxy and move between
+  workers seamlessly.
+- **Storia Relay = the coordinator** (`cluster=true`): world storage, ownership, links, placement.
+- **Storia (the main server)** stays the entry point for a single-server setup; in a cluster every server is a
+  worker, and the names Storia / Worker / Relay / Proxy stay the same for users.
+- The terrain-only mode (noise offload, `-Dstoria.worker=true`) is removed and archived: a worker now needs the
+  CPU and RAM of a normal Storia server. The code stays in the git history and in the releases that include it.
 - Releases before the first Cluster release (26.2, 26.2-1-beta) do not support Cluster; the website says so on
   the downloads page (`CLUSTER_SINCE` in StoriaSite/build.py marks the first release with it).
 
