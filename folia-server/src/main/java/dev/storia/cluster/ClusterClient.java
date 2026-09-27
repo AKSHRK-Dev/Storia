@@ -38,6 +38,8 @@ final class ClusterClient {
     private final String secret;
     private final String name;
     private final AtomicLong ids = new AtomicLong();
+    /** Identifies this server process, so the relay can tell a reconnect from a second worker with the same name. */
+    private final String instance = java.util.UUID.randomUUID().toString();
     private final Map<Long, CompletableFuture<ClusterProtocol.Response>> pending = new ConcurrentHashMap<>();
     private volatile SecureChannel channel;
     private volatile int index = -1;
@@ -90,7 +92,7 @@ final class ClusterClient {
         socket.connect(new InetSocketAddress(this.coordinator.host(), this.coordinator.port()), 5000);
         socket.setTcpNoDelay(true);
         final SecureChannel channel = SecureChannel.initiate(socket, this.secret, true);
-        channel.send(Handshake.hello(new Handshake.Hello(ClusterProtocol.ROLE_NODE, 0, Map.of("node", this.name))));
+        channel.send(Handshake.hello(new Handshake.Hello(ClusterProtocol.ROLE_NODE, 0, Map.of("node", this.name, "instance", this.instance))));
         final Handshake.Welcome welcome = Handshake.readWelcome(channel.receive());
         if (!welcome.ok()) {
             channel.close();

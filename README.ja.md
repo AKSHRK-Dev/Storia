@@ -169,6 +169,11 @@ player-budget:
 移します。読み込み画面なしの移動は Minecraft 26.1・26.2 のクライアントが対象です。詳しいガイド：
 https://storiamc.com/ja-jp/docs/cluster/ 、設計は [CLUSTER.md](CLUSTER.md)。
 
+**プラグイン**：各ワーカーがそれぞれプラグインを動かします。プレイヤーデータは Cluster が共有します。プラグイン自身の
+データには Storia のプラグイン API（`dev.storia.api.StoriaShared`、リリースの `storia-api-<version>.jar`）を使ってください。
+プラグインごとのキーと値のストア（比較して入れ替え・カウンター・変更通知）と、全ワーカーへのメッセージがあります。
+単体のサーバーでも動きます。ガイド：https://storiamc.com/ja-jp/docs/plugin-api/
+
 以前の「地形生成だけを別のマシンに任せる」機能は Cluster に置き換わりました。コードは `archive/terrain-offload`
 ブランチに残しています。
 

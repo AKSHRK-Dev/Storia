@@ -5,7 +5,8 @@ contraption links, local spool for coordinator outages, re-claim after coordinat
 areas, merging, balancing, player transfers with strict data handover; seamless switching for 26.1/26.2 clients
 (verified with protocol-level bots and a real 26.2 client); shared advancements, statistics, time, weather, game
 rules, scoreboard, map ids and maps; /stop hands players to other workers first; players whose data cannot be read
-are refused instead of overwriting it. Still open: a shared API for plugins. Goal: several Storia servers ("nodes") run **one** world together, each ticking a
+are refused instead of overwriting it. Since 26.2-4, plugins share data and messages through dev.storia.api
+(StoriaShared / SharedStore; OP_KV_* and OP_PUBLISH on the relay, stored in cluster-world/storia-shared/). Goal: several Storia servers ("nodes") run **one** world together, each ticking a
 different part of it, with automatic placement and seamless movement for players.
 
 ## Storia Worker is a cluster node

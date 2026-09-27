@@ -65,6 +65,19 @@ public final class ClusterProtocol {
      * packs and other data; no chunks, entities, POI or player data) as a zip, so a new worker needs no copy.
      */
     public static final byte OP_WORLD_BASE = 21;
+    // Shared data for plugins (dev.storia.api): a key-value store per namespace, and messages.
+    /** KV_KEY body -> OK (value) or NOT_FOUND. */
+    public static final byte OP_KV_GET = 22;
+    /** KV_SET body (value absent = delete) -> OK. Every node gets PUSH_KV_CHANGE. */
+    public static final byte OP_KV_SET = 23;
+    /** KV_CAS body -> OK ("true" / "false"). */
+    public static final byte OP_KV_CAS = 24;
+    /** KV_INCR body -> OK (new value as text). */
+    public static final byte OP_KV_INCR = 25;
+    /** KV_KEY body with the prefix as key -> OK (list of keys). */
+    public static final byte OP_KV_KEYS = 26;
+    /** PUBLISH body -> OK. Every node gets PUSH_MESSAGE. */
+    public static final byte OP_PUBLISH = 27;
 
     // pushes, coordinator -> node
     /** Save, unload and release these cells soon (another node takes them over). */
@@ -79,6 +92,10 @@ public final class ClusterProtocol {
     public static final byte PUSH_GLOBAL = 4;
     /** Scoreboard change or snapshot from another node; empty data = that node wants a snapshot. */
     public static final byte PUSH_SCOREBOARD = 5;
+    /** A shared key changed: node, namespace, key, value (absent = deleted). */
+    public static final byte PUSH_KV_CHANGE = 6;
+    /** A published message: node, channel, data. */
+    public static final byte PUSH_MESSAGE = 7;
 
     // response status
     public static final byte OK = 0;
@@ -366,6 +383,76 @@ public final class ClusterProtocol {
     public static Named readNamed(final byte[] body) throws IOException {
         final DataInputStream in = new DataInputStream(new ByteArrayInputStream(body));
         return new Named(in.readUTF(), readBytes(in));
+    }
+
+    // ---- shared data for plugins ----
+
+    /** Namespace, key and up to two optional values (value, then expected for CAS), plus a number (INCR delta). */
+    public record Kv(String namespace, String key, byte[] value, byte[] expected, long number) {}
+
+    public static byte[] kv(final Kv kv) {
+        return write(out -> {
+            out.writeUTF(kv.namespace());
+            out.writeUTF(kv.key());
+            writeOptional(out, kv.value());
+            writeOptional(out, kv.expected());
+            out.writeLong(kv.number());
+        });
+    }
+
+    public static Kv readKv(final byte[] body) throws IOException {
+        final DataInputStream in = new DataInputStream(new ByteArrayInputStream(body));
+        return new Kv(in.readUTF(), in.readUTF(), readOptional(in), readOptional(in), in.readLong());
+    }
+
+    /** PUSH_KV_CHANGE / PUSH_MESSAGE body: the node that did it, a namespace or channel, a key, and a value. */
+    public record Event(String node, String scope, String key, byte[] value) {}
+
+    public static byte[] event(final Event event) {
+        return write(out -> {
+            out.writeUTF(event.node());
+            out.writeUTF(event.scope());
+            out.writeUTF(event.key());
+            writeOptional(out, event.value());
+        });
+    }
+
+    public static Event readEvent(final byte[] body) throws IOException {
+        final DataInputStream in = new DataInputStream(new ByteArrayInputStream(body));
+        return new Event(in.readUTF(), in.readUTF(), in.readUTF(), readOptional(in));
+    }
+
+    public static byte[] strings(final java.util.List<String> values) {
+        return write(out -> {
+            out.writeInt(values.size());
+            for (final String value : values) {
+                out.writeUTF(value);
+            }
+        });
+    }
+
+    public static java.util.List<String> readStrings(final byte[] body) throws IOException {
+        final DataInputStream in = new DataInputStream(new ByteArrayInputStream(body));
+        final int count = in.readInt();
+        if (count < 0 || count > 1_000_000) {
+            throw new IOException("bad count " + count);
+        }
+        final java.util.List<String> values = new java.util.ArrayList<>(count);
+        for (int i = 0; i < count; ++i) {
+            values.add(in.readUTF());
+        }
+        return values;
+    }
+
+    private static void writeOptional(final DataOutputStream out, final byte[] value) throws IOException {
+        out.writeBoolean(value != null);
+        if (value != null) {
+            writeBytes(out, value);
+        }
+    }
+
+    private static byte[] readOptional(final DataInputStream in) throws IOException {
+        return in.readBoolean() ? readBytes(in) : null;
     }
 
     public static byte[] string(final String value) {

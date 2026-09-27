@@ -102,6 +102,7 @@ public final class Cluster {
     public static void init() {
         final YamlConfiguration config = YamlConfiguration.loadConfiguration(new File("storia.yml"));
         if (!config.getBoolean("cluster.enabled", false)) {
+            ClusterShared.install(null, ""); // plugin data stays on this server
             return;
         }
         final String secret = config.getString("cluster.secret", "");
@@ -120,6 +121,7 @@ public final class Cluster {
         client = connection;
         nodeName = name;
         fetchWorldBase(connection);
+        ClusterShared.install(connection, name);
         spool.drain(connection);
         LOGGER.info("Storia Cluster: node '{}' (index {}) joined the cluster at {}; the world is stored by the coordinator",
             name, connection.index(), connection.coordinatorAddress());
@@ -637,6 +639,7 @@ public final class Cluster {
                 case ClusterProtocol.PUSH_PREPARE -> prepareTransfer(ClusterProtocol.readString(push.body()));
                 case ClusterProtocol.PUSH_GLOBAL -> ClusterGlobal.apply(ClusterProtocol.readString(push.body()));
                 case ClusterProtocol.PUSH_SCOREBOARD -> ClusterScoreboard.onPush(ClusterProtocol.readNamed(push.body()));
+                case ClusterProtocol.PUSH_KV_CHANGE, ClusterProtocol.PUSH_MESSAGE -> ClusterShared.onPush(push.op(), ClusterProtocol.readEvent(push.body()));
                 default -> LOGGER.warn("Unknown cluster push {}", push.op());
             }
         } catch (final Exception ex) {

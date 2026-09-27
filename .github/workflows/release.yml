@@ -49,6 +49,8 @@ jobs:
           ./gradlew createPaperclipJar --stacktrace
       - name: Build Storia Relay
         run: ./gradlew -p storia-relay jar -PrelayVersion="${TAG#v}"
+      - name: Build Storia API (for plugins)
+        run: ./gradlew -p storia-api jar sourcesJar javadocJar -PapiVersion="${TAG#v}"
       - name: Build Storia Proxy
         working-directory: storia-proxy-src
         run: ./gradlew :velocity-proxy:shadowJar
@@ -70,6 +72,7 @@ jobs:
           (cd pkg && zip -qr "../dist/storia-relay-$V.zip" "storia-relay-$V")
 
           cp storia-proxy-src/proxy/build/libs/storia-proxy-*.jar "dist/storia-proxy-$V.jar"
+          cp storia-api/build/libs/storia-api-$V.jar storia-api/build/libs/storia-api-$V-sources.jar storia-api/build/libs/storia-api-$V-javadoc.jar dist/
           ls -la dist
 
       - name: Write release notes
@@ -86,6 +89,7 @@ jobs:
           | \`storia-worker-$V.zip\` | Storia Worker: one server of a Storia Cluster; add workers to run one world on several machines. See README.md inside. |
           | \`storia-relay-$V.zip\` | Storia Relay: the cluster's coordinator; stores the world and decides which worker runs which part (Java 21+). |
           | \`storia-proxy-$V.jar\` | Storia Proxy: Velocity fork with 50 built-in placeholders ([docs](https://github.com/AKSHRK-Dev/StoriaProxy)). |
+          | \`storia-api-$V.jar\` | For plugin developers: data and messages shared by every worker (compileOnly; [docs](https://storiamc.com/en-us/docs/plugin-api/)). |
 
           All cluster traffic is encrypted and authenticated with your shared secret. Guide: https://storiamc.com/en-us/docs/cluster/
           NOTES

@@ -34,6 +34,8 @@ public final class ClusterCoordinator {
 
     private final Path world;
     private final AnvilStore store;
+    /** Plugin data shared by every worker (dev.storia.api), kept in storia-shared/ next to the world. */
+    private final dev.storia.cluster.protocol.SharedData shared;
     private final Consumer<String> log;
     private final ExecutorService io = Executors.newFixedThreadPool(8, runnable -> {
         final Thread thread = new Thread(runnable, "cluster io");
@@ -76,6 +78,7 @@ public final class ClusterCoordinator {
         this.world = world;
         Files.createDirectories(world);
         this.store = new AnvilStore(world);
+        this.shared = new dev.storia.cluster.protocol.SharedData(world.resolve("storia-shared"));
         this.log = log;
         this.linksFile = world.resolve("storia-cluster-links.txt");
         this.loadLinks();
@@ -92,28 +95,40 @@ public final class ClusterCoordinator {
         final String name;
         final int index;
         final SecureChannel channel;
+        final String instance;
         volatile long lastHeartbeat = System.currentTimeMillis();
         volatile ClusterProtocol.Heartbeat lastStats = new ClusterProtocol.Heartbeat(0, 0, 0);
         volatile ClusterProtocol.Active active = new ClusterProtocol.Active(Map.of(), List.of());
         /** Stopping: its players are moved away and it gets no new ones. */
         volatile boolean draining;
 
-        Node(final String name, final int index, final SecureChannel channel) {
+        Node(final String name, final int index, final SecureChannel channel, final String instance) {
             this.name = name;
             this.index = index;
             this.channel = channel;
+            this.instance = instance;
         }
     }
 
     /** Serves one node connection until it closes. Called on the connection's thread after its HELLO. */
     public void serve(final SecureChannel channel, final Handshake.Hello hello) throws IOException {
         final String name = hello.values().getOrDefault("node", channel.remoteAddress());
+        final String instance = hello.values().getOrDefault("instance", "");
+        final Node current = this.nodes.get(name);
+        if (current != null && !current.instance.equals(instance)
+            && System.currentTimeMillis() - current.lastHeartbeat < HEARTBEAT_TIMEOUT_MILLIS) {
+            // another server already runs under this name: refuse, or the two would keep replacing each other
+            channel.send(Handshake.welcome(new Handshake.Welcome(false, "another worker (" + current.channel.remoteAddress()
+                + ") already uses the node name '" + name + "'; give each worker its own cluster.node-name")));
+            this.log.accept("Refused a second worker named " + name + " from " + channel.remoteAddress() + " (the name is in use by " + current.channel.remoteAddress() + ")");
+            return;
+        }
         final int index = this.indexes.computeIfAbsent(name, n -> this.nextIndex.getAndIncrement());
         if (index >= 128) {
             channel.send(Handshake.welcome(new Handshake.Welcome(false, "too many nodes")));
             return;
         }
-        final Node node = new Node(name, index, channel);
+        final Node node = new Node(name, index, channel, instance);
         final Node previous = this.nodes.put(name, node);
         if (previous != null) {
             this.log.accept("Node " + name + " reconnected; dropping its old connection");
@@ -128,6 +143,11 @@ public final class ClusterCoordinator {
                     continue;
                 }
                 final ClusterProtocol.Request request = ClusterProtocol.readRequest(message);
+                if (isOrdered(request.op())) {
+                    // plugin data changes and messages keep the order in which each worker sent them
+                    this.respond(channel, node, request);
+                    continue;
+                }
                 this.io.execute(() -> {
                     ClusterProtocol.Response response;
                     try {
@@ -146,6 +166,32 @@ public final class ClusterCoordinator {
             if (this.nodes.remove(name, node)) {
                 this.dropNode(node, "disconnected");
             }
+        }
+    }
+
+    private static boolean isOrdered(final byte op) {
+        return op == ClusterProtocol.OP_KV_SET || op == ClusterProtocol.OP_KV_CAS || op == ClusterProtocol.OP_KV_INCR || op == ClusterProtocol.OP_PUBLISH;
+    }
+
+    private void respond(final SecureChannel channel, final Node node, final ClusterProtocol.Request request) {
+        ClusterProtocol.Response response;
+        try {
+            response = this.handle(node, request);
+        } catch (final Exception ex) {
+            response = new ClusterProtocol.Response(request.id(), ClusterProtocol.ERROR, ClusterProtocol.string(String.valueOf(ex.getMessage())));
+        }
+        try {
+            channel.send(ClusterProtocol.response(response));
+        } catch (final IOException ignored) {
+            // node gone
+        }
+    }
+
+    /** Tells every worker, including the one that made it, about a change to shared plugin data. */
+    private void pushAll(final byte op, final ClusterProtocol.Event event) {
+        final byte[] body = ClusterProtocol.event(event);
+        for (final Node other : this.nodes.values()) {
+            this.pushNode(other.name, op, body);
         }
     }
 
@@ -306,6 +352,53 @@ public final class ClusterCoordinator {
                 yield new ClusterProtocol.Response(id, ClusterProtocol.OK, null);
             }
             case ClusterProtocol.OP_WORLD_BASE -> new ClusterProtocol.Response(id, ClusterProtocol.OK, this.worldBase());
+            case ClusterProtocol.OP_KV_GET -> {
+                final ClusterProtocol.Kv kv = ClusterProtocol.readKv(request.body());
+                final byte[] value = this.shared.get(kv.namespace(), kv.key());
+                yield value == null ? new ClusterProtocol.Response(id, ClusterProtocol.NOT_FOUND, null) : new ClusterProtocol.Response(id, ClusterProtocol.OK, value);
+            }
+            case ClusterProtocol.OP_KV_KEYS -> {
+                final ClusterProtocol.Kv kv = ClusterProtocol.readKv(request.body());
+                yield new ClusterProtocol.Response(id, ClusterProtocol.OK, ClusterProtocol.strings(this.shared.keys(kv.namespace(), kv.key())));
+            }
+            case ClusterProtocol.OP_KV_SET -> {
+                final ClusterProtocol.Kv kv = ClusterProtocol.readKv(request.body());
+                synchronized (this.shared) { // change and notification in the same order on every worker
+                    this.shared.set(kv.namespace(), kv.key(), kv.value());
+                    this.pushAll(ClusterProtocol.PUSH_KV_CHANGE, new ClusterProtocol.Event(node.name, kv.namespace(), kv.key(), kv.value()));
+                }
+                yield new ClusterProtocol.Response(id, ClusterProtocol.OK, null);
+            }
+            case ClusterProtocol.OP_KV_CAS -> {
+                final ClusterProtocol.Kv kv = ClusterProtocol.readKv(request.body());
+                final boolean changed;
+                synchronized (this.shared) {
+                    changed = this.shared.compareAndSet(kv.namespace(), kv.key(), kv.expected(), kv.value());
+                    if (changed) {
+                        this.pushAll(ClusterProtocol.PUSH_KV_CHANGE, new ClusterProtocol.Event(node.name, kv.namespace(), kv.key(), kv.value()));
+                    }
+                }
+                yield new ClusterProtocol.Response(id, ClusterProtocol.OK, ClusterProtocol.string(String.valueOf(changed)));
+            }
+            case ClusterProtocol.OP_KV_INCR -> {
+                final ClusterProtocol.Kv kv = ClusterProtocol.readKv(request.body());
+                final long value;
+                synchronized (this.shared) {
+                    value = this.shared.increment(kv.namespace(), kv.key(), kv.number());
+                    this.pushAll(ClusterProtocol.PUSH_KV_CHANGE, new ClusterProtocol.Event(node.name, kv.namespace(), kv.key(),
+                        Long.toString(value).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+                }
+                yield new ClusterProtocol.Response(id, ClusterProtocol.OK, ClusterProtocol.string(Long.toString(value)));
+            }
+            case ClusterProtocol.OP_PUBLISH -> {
+                final ClusterProtocol.Kv kv = ClusterProtocol.readKv(request.body());
+                dev.storia.cluster.protocol.SharedData.checkChannel(kv.namespace());
+                dev.storia.cluster.protocol.SharedData.checkValue(kv.value());
+                synchronized (this.shared) {
+                    this.pushAll(ClusterProtocol.PUSH_MESSAGE, new ClusterProtocol.Event(node.name, kv.namespace(), "", kv.value() == null ? new byte[0] : kv.value()));
+                }
+                yield new ClusterProtocol.Response(id, ClusterProtocol.OK, null);
+            }
             case ClusterProtocol.OP_COUNTER -> new ClusterProtocol.Response(id, ClusterProtocol.OK,
                 ClusterProtocol.string(Long.toString(this.nextCounter(ClusterProtocol.readString(request.body())))));
             case ClusterProtocol.OP_PLAYER_RELEASE -> {
@@ -765,7 +858,7 @@ public final class ClusterCoordinator {
     }
 
     /** Folders a worker must never get a copy of: they are read and written through the coordinator. */
-    private static final java.util.Set<String> NOT_BASE = java.util.Set.of("region", "entities", "poi", "players");
+    private static final java.util.Set<String> NOT_BASE = java.util.Set.of("region", "entities", "poi", "players", "storia-shared");
 
     /** The world without chunks, entities, POI and players, zipped: what a new worker needs to start. */
     private byte[] worldBase() throws IOException {

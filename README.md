@@ -171,6 +171,11 @@ the scoreboard, maps, advancements and statistics are shared; `/stop` on a worke
 first. Seamless moves need Minecraft 26.1/26.2 clients. Full guide: https://storiamc.com/en-us/docs/cluster/ and
 the design in [CLUSTER.md](CLUSTER.md).
 
+**Plugins**: each worker runs its own copy of every plugin. Player data is shared by the cluster; for a plugin's
+own data use Storia's plugin API (`dev.storia.api.StoriaShared`, `storia-api-<version>.jar` in the release): a
+key-value store per plugin with compare-and-set, counters and change notifications, and messages to every worker.
+It also works on a single server. Guide: https://storiamc.com/en-us/docs/plugin-api/
+
 The earlier terrain-only offload (workers that computed terrain noise for one server) was replaced by the
 cluster; its code is kept in the `archive/terrain-offload` branch.
 
