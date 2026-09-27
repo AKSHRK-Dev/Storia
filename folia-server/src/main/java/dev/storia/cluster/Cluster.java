@@ -76,6 +76,9 @@ public final class Cluster {
     static final AtomicLong skippedWrites = new AtomicLong();
     static final AtomicLong links = new AtomicLong();
 
+    /** Set once the server has finished starting (Folia never sets isReady). */
+    public static volatile boolean serverStarted;
+
     private Cluster() {}
 
     public static boolean enabled() {
@@ -96,7 +99,7 @@ public final class Cluster {
         if (!config.getBoolean("cluster.enabled", false)) {
             return;
         }
-        final String secret = config.getString("cluster.secret", config.getString("offload.secret", ""));
+        final String secret = config.getString("cluster.secret", "");
         final String name = config.getString("cluster.node-name", "");
         if (secret == null || secret.length() < 8 || name == null || name.isBlank()) {
             throw new IllegalStateException("cluster.enabled is true, but cluster.node-name or a secret (at least 8 characters) is missing in storia.yml");
@@ -111,12 +114,52 @@ public final class Cluster {
         }
         client = connection;
         nodeName = name;
+        fetchWorldBase(connection);
         spool.drain(connection);
         LOGGER.info("Storia Cluster: node '{}' (index {}) joined the cluster at {}; the world is stored by the coordinator",
             name, connection.index(), connection.coordinatorAddress());
         final Thread maintenance = new Thread(Cluster::maintenanceLoop, "Storia Cluster maintenance");
         maintenance.setDaemon(true);
         maintenance.start();
+    }
+
+    /**
+     * A new worker has no world folder: fetch the world's base files (level.dat, world generation settings, data
+     * packs) from the coordinator. An existing folder is left alone.
+     */
+    private static void fetchWorldBase(final ClusterClient connection) {
+        final java.util.Properties properties = new java.util.Properties();
+        try (java.io.Reader reader = java.nio.file.Files.newBufferedReader(java.nio.file.Path.of("server.properties"))) {
+            properties.load(reader);
+        } catch (final IOException ignored) {
+            // first start: server.properties does not exist yet
+        }
+        final java.nio.file.Path level = java.nio.file.Path.of(properties.getProperty("level-name", "world")).toAbsolutePath().normalize();
+        if (java.nio.file.Files.exists(level.resolve("level.dat"))) {
+            return;
+        }
+        try {
+            final ClusterProtocol.Response response = connection.request(ClusterProtocol.OP_WORLD_BASE, new byte[0]);
+            if (response.status() != ClusterProtocol.OK || response.body() == null) {
+                throw new IOException("the coordinator did not send the world");
+            }
+            int count = 0;
+            try (java.util.zip.ZipInputStream zip = new java.util.zip.ZipInputStream(new java.io.ByteArrayInputStream(response.body()))) {
+                java.util.zip.ZipEntry entry;
+                while ((entry = zip.getNextEntry()) != null) {
+                    final java.nio.file.Path target = level.resolve(entry.getName()).normalize();
+                    if (!target.startsWith(level) || entry.isDirectory()) {
+                        continue; // never write outside the world folder
+                    }
+                    java.nio.file.Files.createDirectories(target.getParent());
+                    java.nio.file.Files.copy(zip, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    count++;
+                }
+            }
+            LOGGER.info("Storia Cluster: fetched the world's base files from the coordinator ({} file(s)) into {}", count, level);
+        } catch (final IOException ex) {
+            throw new IllegalStateException("Could not fetch the world from the cluster coordinator: " + ex.getMessage(), ex);
+        }
     }
 
     /** First entity id of this node, so entity ids never collide between nodes. */

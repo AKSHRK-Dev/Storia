@@ -1,5 +1,5 @@
 @echo off
-rem Storia Worker: computes terrain for other Storia servers. Opens no player port.
+rem Storia Worker: runs part of a Storia Cluster's world. Players reach it through Storia Proxy.
 cd /d "%~dp0"
 findstr /c:"eula=true" eula.txt >nul 2>&1
 if errorlevel 1 (
@@ -7,6 +7,6 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-if "%WORKER_MEMORY%"=="" set WORKER_MEMORY=4G
-java -Xms1G -Xmx%WORKER_MEMORY% -Dstoria.worker=true -jar storia.jar nogui
+if "%WORKER_MEMORY%"=="" set WORKER_MEMORY=6G
+java -Xms2G -Xmx%WORKER_MEMORY% -jar storia.jar nogui
 pause

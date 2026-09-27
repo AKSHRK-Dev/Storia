@@ -283,14 +283,12 @@ public final class RamWorld {
             "  in a busy place are never limited. lower-simulation-distance: true also lowers their simulation",
             "  distance. When the heap after GC passes memory-high-percent, everyone's view distance is lowered.",
             "",
-            "offload: generate terrain noise on other machines. On the main server set mode: client and",
-            "  list workers (host:port); on each helper machine run Storia with a copy of the same world",
-            "  (same seed and datapacks) and set mode: worker. Both need the same secret. Workers only",
-            "  accept dimensions whose terrain matches exactly; anything else is generated locally, as is",
-            "  everything when a worker is busy, slow (timeout-ms) or down. Traffic is encrypted and",
-            "  authenticated with the secret (at least 8 characters; the secret itself is never sent).",
-            "  workers may also point at a Storia Relay. A worker with relay: host:port connects out to that",
-            "  relay instead of listening. max-in-flight -1 = worker threads * 4; threads -1 = cores."
+            "cluster: run this server as a Storia Worker, one node of a Storia Cluster: several servers run one",
+            "  world together, each the part where its players are, and players move between them through",
+            "  Storia Proxy without a loading screen. coordinator is the Storia Relay (host:port) that stores the",
+            "  world; node-name must be unique and match the server's name in the proxy's velocity.toml;",
+            "  secret (8+ characters) must match the relay's. A worker keeps no world of its own and fetches",
+            "  the world settings from the relay on first start. Guide: https://storiamc.com/en-us/docs/cluster/"
         ));
         config.addDefault("ram-world.enabled", true);
         config.addDefault("ram-world.ram-directory", "/dev/shm/storia");
@@ -315,16 +313,10 @@ public final class RamWorld {
         config.addDefault("player-budget.memory-high-percent", 85);
         config.addDefault("player-budget.memory-low-percent", 70);
         config.addDefault("player-budget.fast-mover-speed", 12.0);
-        config.addDefault("offload.mode", "off");
-        config.addDefault("offload.secret", "");
-        config.addDefault("offload.workers", java.util.List.of("127.0.0.1:25590"));
-        config.addDefault("offload.max-in-flight", -1);
-        config.addDefault("offload.timeout-ms", 10000);
-        config.addDefault("offload.compress", true);
-        config.addDefault("offload.bind", "0.0.0.0");
-        config.addDefault("offload.port", 25590);
-        config.addDefault("offload.threads", -1);
-        config.addDefault("offload.relay", "");
+        config.addDefault("cluster.enabled", false);
+        config.addDefault("cluster.coordinator", "127.0.0.1:25590");
+        config.addDefault("cluster.node-name", "");
+        config.addDefault("cluster.secret", "");
         config.options().copyDefaults(true);
         try {
             config.save(file);

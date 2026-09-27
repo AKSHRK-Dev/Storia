@@ -83,11 +83,11 @@ jobs:
           | File | What it is |
           | --- | --- |
           | \`storia-$V.jar\` | The Storia server (Folia fork). Run \`java -jar storia-$V.jar nogui\`. |
-          | \`storia-worker-$V.zip\` | Storia Worker: generates terrain for your server on another machine. See README.md inside. |
-          | \`storia-relay-$V.zip\` | Storia Relay: hands terrain work to any number of workers (Java 21+, no Minecraft files). |
+          | \`storia-worker-$V.zip\` | Storia Worker: one server of a Storia Cluster; add workers to run one world on several machines. See README.md inside. |
+          | \`storia-relay-$V.zip\` | Storia Relay: the cluster's coordinator; stores the world and decides which worker runs which part (Java 21+). |
           | \`storia-proxy-$V.jar\` | Storia Proxy: Velocity fork with 50 built-in placeholders ([docs](https://github.com/AKSHRK-Dev/StoriaProxy)). |
 
-          All offload traffic is encrypted and authenticated with your shared secret.
+          All cluster traffic is encrypted and authenticated with your shared secret. Guide: https://storiamc.com/en-us/docs/cluster/
           NOTES
           sed -i 's/^          //' notes.md
           # what is new in this release, if written down

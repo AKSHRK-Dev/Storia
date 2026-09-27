@@ -1,7 +1,9 @@
 package dev.storia.relay;
 
-import dev.storia.offload.protocol.Messages;
-import dev.storia.offload.protocol.SecureChannel;
+import dev.storia.cluster.protocol.ClusterProtocol;
+import dev.storia.net.Handshake;
+import dev.storia.net.SecureChannel;
+import dev.storia.relay.cluster.ClusterCoordinator;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -15,31 +17,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Storia Relay: sits between Storia servers and any number of Storia Workers and hands out terrain work.
+ * Storia Relay: the coordinator of a Storia Cluster.
  *
  * <pre>
- *   Storia server 1 --\                     /-- Storia Worker A
- *   Storia server 2 ----&gt;  Storia Relay  &lt;---- Storia Worker B
- *                                           \-- Storia Worker C (joins/leaves any time)
+ *   players --&gt; Storia Proxy --&gt; Storia Worker A --\
+ *                            \-&gt; Storia Worker B ---&gt; Storia Relay: the world, who runs what
+ *                             \-&gt; Storia Worker C --/
  * </pre>
  *
- * Servers connect as they would to a worker ({@code offload.workers: ["relay-host:25590"]}); workers connect out
- * to the relay ({@code offload.relay: "relay-host:25590"}). Each request goes to the least busy worker whose
- * probe fingerprint for that dimension matches the requesting server's, so a worker never serves a world whose
- * terrain it would generate differently. When workers join or leave, every server is told its new capacity. If
- * a worker drops, its requests are retried on another worker, or failed so the server generates them locally.
+ * The relay stores the world (normal Anvil files), player data and shared data, grants each part of the world to
+ * one worker at a time, merges and balances players across workers and tells Storia Proxy when to move a player.
  * All links are encrypted with the shared secret.
  */
 public final class StoriaRelay {
@@ -49,21 +39,12 @@ public final class StoriaRelay {
     private final Properties config;
     private final String secret;
     private final boolean compress;
-    private final int perThread;
-    private final long timeoutNanos;
-    private final List<Worker> workers = new CopyOnWriteArrayList<>();
-    private final List<Server> servers = new CopyOnWriteArrayList<>();
-    private final AtomicLong nextRelayId = new AtomicLong();
-    private final AtomicLong forwarded = new AtomicLong();
-    private final AtomicLong retried = new AtomicLong();
-    private final AtomicLong rejected = new AtomicLong();
+    private ClusterCoordinator cluster;
 
     private StoriaRelay(final Properties config) {
         this.config = config;
         this.secret = config.getProperty("secret", "");
         this.compress = Boolean.parseBoolean(config.getProperty("compress", "true"));
-        this.perThread = Integer.parseInt(config.getProperty("in-flight-per-thread", "4"));
-        this.timeoutNanos = Long.parseLong(config.getProperty("timeout-ms", "20000")) * 1_000_000L;
     }
 
     public static void main(final String[] args) throws IOException {
@@ -71,27 +52,21 @@ public final class StoriaRelay {
         if (!Files.exists(file)) {
             try (Writer writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
                 writer.write("""
-                    # Storia Relay
-                    # Storia servers:  offload.mode: client, offload.workers: ["<this host>:<port>"]
-                    # Storia Workers:  offload.mode: worker, offload.relay: "<this host>:<port>"
+                    # Storia Relay: the coordinator of a Storia Cluster.
+                    # Workers: cluster.enabled: true, cluster.coordinator: "<this host>:<port>", cluster.node-name
+                    # and cluster.secret in storia.yml. Storia Proxy: [cluster] in storia-proxy.toml.
                     # Everyone must use the same secret (at least 8 characters). Traffic is encrypted.
+                    # Guide: https://storiamc.com/en-us/docs/cluster/
                     bind=0.0.0.0
                     port=25590
                     secret=
                     # Deflate frames before encryption (saves bandwidth, costs a little CPU).
                     compress=true
-                    # Requests queued per worker thread.
-                    in-flight-per-thread=4
-                    # Give up on a worker's answer after this long (the server then generates the chunk itself).
-                    timeout-ms=20000
-                    # Storia Cluster (beta): several Storia nodes share one world stored in cluster-world.
-                    # Nodes: cluster.enabled, cluster.coordinator: "<this host>:<port>", cluster.node-name and
-                    # cluster.secret in storia.yml. Guide: https://storiamc.com/en-us/docs/cluster/
-                    cluster=false
+                    # The shared world: a normal world folder. Only the relay writes to it.
                     cluster-world=cluster-world
                     """);
             }
-            log("Created " + file.toAbsolutePath() + "; set a secret and start again.");
+            log("Created " + file.toAbsolutePath() + "; set a secret, put your world in cluster-world and start again.");
             return;
         }
         final Properties config = new Properties();
@@ -109,22 +84,15 @@ public final class StoriaRelay {
         System.out.println("[" + LocalTime.now().format(TIME) + "] " + message);
     }
 
-    private dev.storia.relay.cluster.ClusterCoordinator cluster;
-
     private void run() throws IOException {
-        if (Boolean.parseBoolean(this.config.getProperty("cluster", "false"))) {
-            final java.nio.file.Path world = java.nio.file.Path.of(this.config.getProperty("cluster-world", "cluster-world"));
-            this.cluster = new dev.storia.relay.cluster.ClusterCoordinator(world, StoriaRelay::log);
-            log("Cluster mode on: storing the shared world in " + world.toAbsolutePath());
-        }
+        final Path world = Path.of(this.config.getProperty("cluster-world", "cluster-world"));
+        this.cluster = new ClusterCoordinator(world, StoriaRelay::log);
+        log("Cluster mode on: storing the shared world in " + world.toAbsolutePath());
         final String bind = this.config.getProperty("bind", "0.0.0.0");
         final int port = Integer.parseInt(this.config.getProperty("port", "25590"));
         final Thread console = new Thread(this::console, "console");
         console.setDaemon(true);
         console.start();
-        final Thread timeouts = new Thread(this::timeoutLoop, "timeouts");
-        timeouts.setDaemon(true);
-        timeouts.start();
         try (ServerSocket listener = new ServerSocket()) {
             listener.bind(new InetSocketAddress(bind, port));
             log("Storia Relay listening on " + bind + ":" + port + " (encrypted). Type 'status' or 'stop'.");
@@ -143,7 +111,7 @@ public final class StoriaRelay {
             String line;
             while ((line = reader.readLine()) != null) {
                 switch (line.trim().toLowerCase(java.util.Locale.ROOT)) {
-                    case "status" -> this.printStatus();
+                    case "status" -> this.cluster.statusLines().forEach(StoriaRelay::log);
                     case "stop", "end", "exit" -> {
                         log("Stopping.");
                         System.exit(0);
@@ -157,27 +125,12 @@ public final class StoriaRelay {
         }
     }
 
-    private void printStatus() {
-        log("Workers: " + this.workers.size() + ", servers: " + this.servers.size() + ", forwarded " + this.forwarded.get()
-            + ", retried " + this.retried.get() + ", rejected (no worker) " + this.rejected.get());
-        for (final Worker worker : this.workers) {
-            log("  worker " + worker.channel.remoteAddress() + ": " + worker.threads + " threads, " + worker.pending.size() + "/" + worker.limit()
-                + " in flight, " + worker.done.get() + " done, dims " + worker.probes.keySet());
-        }
-        for (final Server server : this.servers) {
-            log("  server " + server.channel.remoteAddress() + ": capacity " + server.lastCapacity);
-        }
-        if (this.cluster != null) {
-            this.cluster.statusLines().forEach(StoriaRelay::log);
-        }
-    }
-
     private void handle(final Socket socket) {
         final SecureChannel channel;
-        final Messages.Hello hello;
+        final Handshake.Hello hello;
         try {
             channel = SecureChannel.respond(socket, this.secret, this.compress);
-            hello = Messages.readHello(channel.receive());
+            hello = Handshake.readHello(channel.receive());
         } catch (final IOException ex) {
             log("Rejected " + socket.getRemoteSocketAddress() + ": " + ex.getMessage());
             try {
@@ -188,217 +141,20 @@ public final class StoriaRelay {
             return;
         }
         try {
-            if (hello.role() == Messages.ROLE_WORKER) {
-                this.runWorker(new Worker(channel, hello.threads(), hello.probes()));
-            } else if (hello.role() == Messages.ROLE_SERVER) {
-                this.runServer(new Server(channel, hello.probes()));
-            } else if (hello.role() == dev.storia.cluster.protocol.ClusterProtocol.ROLE_PROXY && this.cluster != null) {
+            if (hello.role() == ClusterProtocol.ROLE_NODE) {
+                this.cluster.serve(channel, hello);
+            } else if (hello.role() == ClusterProtocol.ROLE_PROXY) {
                 this.cluster.serveProxy(channel);
-            } else if (hello.role() == dev.storia.cluster.protocol.ClusterProtocol.ROLE_NODE) {
-                if (this.cluster == null) {
-                    channel.send(Messages.welcome(new Messages.Welcome(false, "cluster mode is off on this relay (cluster=true in relay.properties)")));
-                } else {
-                    this.cluster.serve(channel, hello);
-                }
             } else {
-                channel.send(Messages.welcome(new Messages.Welcome(false, "unknown role")));
+                // 0 and 1 were servers and workers of the removed terrain offload (26.2-2-beta and earlier)
+                channel.send(Handshake.welcome(new Handshake.Welcome(false,
+                    "terrain offload was removed; this relay only runs a Storia Cluster (update Storia and use cluster.* in storia.yml)")));
+                log("Rejected " + socket.getRemoteSocketAddress() + ": an old Storia asked for terrain offload, which was removed");
             }
         } catch (final IOException ex) {
-            // connection ended; cleanup happens in runWorker/runServer
+            // connection ended
         } finally {
             channel.close();
         }
-    }
-
-    // ---- workers ----------------------------------------------------------------------------------
-
-    private record Pending(Server server, long serverId, Messages.Request request, long deadline, Set<Worker> tried) {}
-
-    private final class Worker {
-        final SecureChannel channel;
-        final int threads;
-        final Map<String, String> probes;
-        final Map<Long, Pending> pending = new ConcurrentHashMap<>();
-        final AtomicLong done = new AtomicLong();
-
-        Worker(final SecureChannel channel, final int threads, final Map<String, String> probes) {
-            this.channel = channel;
-            this.threads = Math.max(1, threads);
-            this.probes = Map.copyOf(probes);
-        }
-
-        int limit() {
-            return this.threads * StoriaRelay.this.perThread;
-        }
-
-        boolean serves(final Server server, final String dim) {
-            final String mine = this.probes.get(dim);
-            return mine != null && mine.equals(server.probes.get(dim));
-        }
-    }
-
-    private void runWorker(final Worker worker) throws IOException {
-        worker.channel.send(Messages.welcome(new Messages.Welcome(true, "")));
-        this.workers.add(worker);
-        log("Worker " + worker.channel.remoteAddress() + " joined: " + worker.threads + " threads, dims " + worker.probes.keySet());
-        this.pushCapacity();
-        try {
-            while (true) {
-                final byte[] message = worker.channel.receive();
-                if (Messages.type(message) != Messages.RESPONSE) {
-                    continue;
-                }
-                final Messages.Response response = Messages.readResponse(message);
-                final Pending entry = worker.pending.remove(response.id());
-                if (entry == null) {
-                    continue;
-                }
-                worker.done.incrementAndGet();
-                this.reply(entry.server(), new Messages.Response(entry.serverId(), response.status(), response.body()));
-            }
-        } finally {
-            this.workers.remove(worker);
-            log("Worker " + worker.channel.remoteAddress() + " left (" + worker.pending.size() + " request(s) in flight)");
-            for (final Pending entry : worker.pending.values()) {
-                entry.tried().add(worker);
-                this.dispatch(entry.server(), entry.serverId(), entry.request(), entry.tried(), true);
-            }
-            worker.pending.clear();
-            this.pushCapacity();
-        }
-    }
-
-    // ---- servers ----------------------------------------------------------------------------------
-
-    private final class Server {
-        final SecureChannel channel;
-        final Map<String, String> probes;
-        volatile String lastCapacity = "none";
-
-        Server(final SecureChannel channel, final Map<String, String> probes) {
-            this.channel = channel;
-            this.probes = Map.copyOf(probes);
-        }
-    }
-
-    private void runServer(final Server server) throws IOException {
-        server.channel.send(Messages.welcome(new Messages.Welcome(true, "")));
-        this.servers.add(server);
-        log("Server " + server.channel.remoteAddress() + " connected for dims " + server.probes.keySet());
-        this.sendCapacity(server);
-        try {
-            while (true) {
-                final byte[] message = server.channel.receive();
-                if (Messages.type(message) != Messages.REQUEST) {
-                    continue;
-                }
-                final Messages.Request request = Messages.readRequest(message);
-                this.dispatch(server, request.id(), request, new LinkedHashSet<>(), false);
-            }
-        } finally {
-            this.servers.remove(server);
-            log("Server " + server.channel.remoteAddress() + " disconnected");
-            for (final Worker worker : this.workers) {
-                worker.pending.values().removeIf(entry -> entry.server() == server);
-            }
-        }
-    }
-
-    private void dispatch(final Server server, final long serverId, final Messages.Request request, final Set<Worker> tried, final boolean retry) {
-        Worker best = null;
-        for (final Worker worker : this.workers) {
-            if (tried.contains(worker) || !worker.serves(server, request.dim()) || worker.pending.size() >= worker.limit()) {
-                continue;
-            }
-            if (best == null || (double) worker.pending.size() / worker.limit() < (double) best.pending.size() / best.limit()) {
-                best = worker;
-            }
-        }
-        if (best == null) {
-            this.rejected.incrementAndGet();
-            try {
-                this.reply(server, new Messages.Response(serverId, Messages.STATUS_ERROR, Messages.error("no worker available")));
-            } catch (final IOException ignored) {
-                // server gone
-            }
-            return;
-        }
-        final long relayId = this.nextRelayId.incrementAndGet();
-        best.pending.put(relayId, new Pending(server, serverId, request, System.nanoTime() + this.timeoutNanos, tried));
-        try {
-            best.channel.send(Messages.request(new Messages.Request(relayId, request.dim(), request.body())));
-            this.forwarded.incrementAndGet();
-            if (retry) {
-                this.retried.incrementAndGet();
-            }
-        } catch (final IOException ex) {
-            best.pending.remove(relayId);
-            tried.add(best);
-            best.channel.close();
-            this.dispatch(server, serverId, request, tried, true);
-        }
-    }
-
-    private void reply(final Server server, final Messages.Response response) throws IOException {
-        if (this.servers.contains(server)) {
-            server.channel.send(Messages.response(response));
-        }
-    }
-
-    private void timeoutLoop() {
-        while (true) {
-            try {
-                Thread.sleep(1_000L);
-            } catch (final InterruptedException ex) {
-                return;
-            }
-            final long now = System.nanoTime();
-            for (final Worker worker : this.workers) {
-                for (final Map.Entry<Long, Pending> entry : worker.pending.entrySet()) {
-                    if (now - entry.getValue().deadline() > 0 && worker.pending.remove(entry.getKey()) != null) {
-                        try {
-                            this.reply(entry.getValue().server(), new Messages.Response(entry.getValue().serverId(), Messages.STATUS_ERROR, Messages.error("worker timed out")));
-                        } catch (final IOException ignored) {
-                            // server gone
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ---- capacity ---------------------------------------------------------------------------------
-
-    private void pushCapacity() {
-        for (final Server server : this.servers) {
-            try {
-                this.sendCapacity(server);
-            } catch (final IOException ignored) {
-                // its reader thread will clean up
-            }
-        }
-    }
-
-    private void sendCapacity(final Server server) throws IOException {
-        final List<String> dims = new ArrayList<>();
-        int threads = 0;
-        for (final String dim : server.probes.keySet()) {
-            for (final Worker worker : this.workers) {
-                if (worker.serves(server, dim)) {
-                    dims.add(dim);
-                    break;
-                }
-            }
-        }
-        for (final Worker worker : this.workers) {
-            for (final String dim : dims) {
-                if (worker.serves(server, dim)) {
-                    threads += worker.threads;
-                    break;
-                }
-            }
-        }
-        server.lastCapacity = threads + " threads for " + dims;
-        server.channel.send(Messages.capacity(new Messages.Capacity(threads, dims)));
     }
 }

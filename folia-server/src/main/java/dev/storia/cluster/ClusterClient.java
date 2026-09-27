@@ -2,8 +2,8 @@ package dev.storia.cluster;
 
 import com.mojang.logging.LogUtils;
 import dev.storia.cluster.protocol.ClusterProtocol;
-import dev.storia.offload.protocol.Messages;
-import dev.storia.offload.protocol.SecureChannel;
+import dev.storia.net.Handshake;
+import dev.storia.net.SecureChannel;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -84,8 +84,8 @@ final class ClusterClient {
         socket.connect(new InetSocketAddress(this.coordinator.host(), this.coordinator.port()), 5000);
         socket.setTcpNoDelay(true);
         final SecureChannel channel = SecureChannel.initiate(socket, this.secret, true);
-        channel.send(Messages.hello(new Messages.Hello(ClusterProtocol.ROLE_NODE, 0, Map.of("node", this.name))));
-        final Messages.Welcome welcome = Messages.readWelcome(channel.receive());
+        channel.send(Handshake.hello(new Handshake.Hello(ClusterProtocol.ROLE_NODE, 0, Map.of("node", this.name))));
+        final Handshake.Welcome welcome = Handshake.readWelcome(channel.receive());
         if (!welcome.ok()) {
             channel.close();
             throw new IOException("coordinator refused this node: " + welcome.message());

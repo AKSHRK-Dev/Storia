@@ -51,7 +51,7 @@ public final class ClusterGlobal {
     /** Called once a second from the maintenance thread. */
     static void tick(final ClusterClient client) {
         final MinecraftServer server = MinecraftServer.getServer();
-        if (server == null || !dev.storia.offload.NoiseOffload.serverStarted) { // Folia never sets isReady()
+        if (server == null || !Cluster.serverStarted) { // Folia never sets isReady()
             return;
         }
         RegionizedServer.getInstance().addTask(() -> {

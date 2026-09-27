@@ -1,0 +1,18 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AKSHRK-Dev <311836316+AKSHRK-Dev@users.noreply.github.com>
+Date: Fri, 25 Sep 2026 14:13:34 +0900
+Subject: [PATCH] Storia server started flag
+
+
+diff --git a/net/minecraft/server/MinecraftServer.java b/net/minecraft/server/MinecraftServer.java
+index 94770de517f5768f960623db82402dd23f6af216..eb8ab385c220526bae54663089229e5b2a234984 100644
+--- a/net/minecraft/server/MinecraftServer.java
++++ b/net/minecraft/server/MinecraftServer.java
+@@ -1359,6 +1359,7 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+                 io.papermc.paper.threadedregions.RegionizedServer.getInstance().init(); // Folia - region threading - only after loading worlds
+                 final long actualDoneTimeMs = System.currentTimeMillis() - org.bukkit.craftbukkit.Main.BOOT_TIME.toEpochMilli(); // Paper - Improve startup message
+                 LOGGER.info("Done ({})! For help, type \"help\"", String.format(java.util.Locale.ROOT, "%.3fs", actualDoneTimeMs / 1000.00D)); // Paper - Improve startup message
++                dev.storia.cluster.Cluster.serverStarted = true; // Storia - Folia never sets isReady
+                 for (;;) {
+                     try {
+                         Thread.sleep(Long.MAX_VALUE);

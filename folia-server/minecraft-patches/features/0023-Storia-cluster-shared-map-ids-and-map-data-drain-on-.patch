@@ -18,7 +18,7 @@ index a8682c013febaeedc5aa2645488d78a666e9436c..f2208bcd5ccf3bd5a428e8ea3bf3ff26
          LOGGER.info("Awaiting scheduler termination for 60s...");
          if (TickRegions.getScheduler().halt(true, TimeUnit.SECONDS.toNanos(60L))) {
 diff --git a/net/minecraft/server/MinecraftServer.java b/net/minecraft/server/MinecraftServer.java
-index bcf64a15987285c6001648933605e10fffc1b850..cd57f0f2be04d3d1a8c856ab82b84a843282630e 100644
+index eb8ab385c220526bae54663089229e5b2a234984..865c62a7cae2d1ff05fb616773263e7870f3ee66 100644
 --- a/net/minecraft/server/MinecraftServer.java
 +++ b/net/minecraft/server/MinecraftServer.java
 @@ -1196,6 +1196,7 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa

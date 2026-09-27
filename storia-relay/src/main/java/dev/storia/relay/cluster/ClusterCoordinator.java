@@ -2,8 +2,8 @@ package dev.storia.relay.cluster;
 
 import dev.storia.cluster.protocol.ClusterProtocol;
 import dev.storia.cluster.protocol.ClusterProtocol.Cell;
-import dev.storia.offload.protocol.Messages;
-import dev.storia.offload.protocol.SecureChannel;
+import dev.storia.net.Handshake;
+import dev.storia.net.SecureChannel;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -106,11 +106,11 @@ public final class ClusterCoordinator {
     }
 
     /** Serves one node connection until it closes. Called on the connection's thread after its HELLO. */
-    public void serve(final SecureChannel channel, final Messages.Hello hello) throws IOException {
-        final String name = hello.probes().getOrDefault("node", channel.remoteAddress());
+    public void serve(final SecureChannel channel, final Handshake.Hello hello) throws IOException {
+        final String name = hello.values().getOrDefault("node", channel.remoteAddress());
         final int index = this.indexes.computeIfAbsent(name, n -> this.nextIndex.getAndIncrement());
         if (index >= 128) {
-            channel.send(Messages.welcome(new Messages.Welcome(false, "too many nodes")));
+            channel.send(Handshake.welcome(new Handshake.Welcome(false, "too many nodes")));
             return;
         }
         final Node node = new Node(name, index, channel);
@@ -119,7 +119,7 @@ public final class ClusterCoordinator {
             this.log.accept("Node " + name + " reconnected; dropping its old connection");
             previous.channel.close();
         }
-        channel.send(Messages.welcome(new Messages.Welcome(true, "index=" + index)));
+        channel.send(Handshake.welcome(new Handshake.Welcome(true, "index=" + index)));
         this.log.accept("Node " + name + " joined the cluster (index " + index + ", " + channel.remoteAddress() + ")");
         try {
             while (true) {
@@ -305,6 +305,7 @@ public final class ClusterCoordinator {
                 AnvilStore.move(temp, file);
                 yield new ClusterProtocol.Response(id, ClusterProtocol.OK, null);
             }
+            case ClusterProtocol.OP_WORLD_BASE -> new ClusterProtocol.Response(id, ClusterProtocol.OK, this.worldBase());
             case ClusterProtocol.OP_COUNTER -> new ClusterProtocol.Response(id, ClusterProtocol.OK,
                 ClusterProtocol.string(Long.toString(this.nextCounter(ClusterProtocol.readString(request.body())))));
             case ClusterProtocol.OP_PLAYER_RELEASE -> {
@@ -491,7 +492,7 @@ public final class ClusterCoordinator {
 
     /** Serves a Storia Proxy connection: login routing requests; receives PUSH_MOVE. */
     public void serveProxy(final SecureChannel channel) throws IOException {
-        channel.send(Messages.welcome(new Messages.Welcome(true, "proxy")));
+        channel.send(Handshake.welcome(new Handshake.Welcome(true, "proxy")));
         this.proxies.add(channel);
         this.log.accept("Storia Proxy " + channel.remoteAddress() + " connected to the cluster");
         try {
@@ -761,6 +762,31 @@ public final class ClusterCoordinator {
                 node.name, node.index, node.channel.remoteAddress(), cells, node.lastStats.players(), node.lastStats.mspt()));
         }
         return lines;
+    }
+
+    /** Folders a worker must never get a copy of: they are read and written through the coordinator. */
+    private static final java.util.Set<String> NOT_BASE = java.util.Set.of("region", "entities", "poi", "players");
+
+    /** The world without chunks, entities, POI and players, zipped: what a new worker needs to start. */
+    private byte[] worldBase() throws IOException {
+        final java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        try (java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(bytes);
+             java.util.stream.Stream<Path> files = java.nio.file.Files.walk(this.world)) {
+            for (final Path file : (Iterable<Path>) files::iterator) {
+                final Path relative = this.world.relativize(file);
+                boolean skip = relative.toString().isEmpty() || java.nio.file.Files.isDirectory(file) || file.getFileName().toString().equals("session.lock");
+                for (final Path part : relative) {
+                    skip |= NOT_BASE.contains(part.toString());
+                }
+                if (skip) {
+                    continue;
+                }
+                zip.putNextEntry(new java.util.zip.ZipEntry(relative.toString().replace(java.io.File.separatorChar, '/')));
+                java.nio.file.Files.copy(file, zip);
+                zip.closeEntry();
+            }
+        }
+        return bytes.toByteArray();
     }
 
     public void close() throws IOException {

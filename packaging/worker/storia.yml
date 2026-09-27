@@ -1,17 +1,13 @@
 # Storia Worker settings (see README.md in this folder)
+# A worker runs part of a shared world for a Storia Cluster. It keeps no world of its own:
+# the Storia Relay stores the world and hands parts of it to the workers.
 ram-world:
   enabled: false
-player-budget:
-  enabled: false
-offload:
-  mode: worker
-  # The same secret as your Storia server (and relay), at least 8 characters.
+cluster:
+  enabled: true
+  # The Storia Relay that coordinates the cluster.
+  coordinator: "relay-host:25590"
+  # A unique name for this worker. Use the same name for it in the proxy's velocity.toml.
+  node-name: "worker-1"
+  # The same secret as the relay (and the proxy's [cluster] section), at least 8 characters.
   secret: ""
-  # Listen for Storia servers on this port...
-  bind: 0.0.0.0
-  port: 25590
-  # ...or connect out to a Storia Relay instead, e.g. "relay.example.lan:25590".
-  relay: ""
-  # Compute threads; -1 = all CPU cores.
-  threads: -1
-  compress: true

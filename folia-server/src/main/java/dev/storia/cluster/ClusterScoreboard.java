@@ -60,7 +60,7 @@ public final class ClusterScoreboard {
 
     /** Called once a second from the maintenance thread; asks for the current scoreboard once the server runs. */
     static void tick(final ClusterClient client) {
-        if (!requested && dev.storia.offload.NoiseOffload.serverStarted && client.connected()) {
+        if (!requested && Cluster.serverStarted && client.connected()) {
             requested = true;
             send(client, "?", new CompoundTag());
         }
@@ -68,7 +68,7 @@ public final class ClusterScoreboard {
 
     private static boolean shared(final Scoreboard board) {
         final MinecraftServer server = MinecraftServer.getServer();
-        return Cluster.enabled() && server != null && dev.storia.offload.NoiseOffload.serverStarted
+        return Cluster.enabled() && server != null && Cluster.serverStarted
             && !APPLYING.get() && board == server.getScoreboard(); // plugin scoreboards stay local
     }
 

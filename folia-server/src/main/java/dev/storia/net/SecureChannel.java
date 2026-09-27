@@ -1,4 +1,4 @@
-package dev.storia.offload.protocol;
+package dev.storia.net;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -32,7 +32,7 @@ import javax.crypto.spec.SecretKeySpec;
  * <p>Handshake (plaintext): each side sends {@code MAGIC, VERSION} and a fresh 32-byte random nonce. Both sides
  * then derive per-direction AES-256 keys:
  * <pre>
- *   psk  = PBKDF2-HMAC-SHA256(secret, "storia-offload-psk", 200000 iterations)
+ *   psk  = PBKDF2-HMAC-SHA256(secret, "storia-offload-psk", 200000 iterations)   (salt name kept from the first protocol)
  *   prk  = HMAC-SHA256(psk, initiatorNonce || responderNonce)
  *   key  = HMAC-SHA256(prk, "i2r") for initiator -> responder, HMAC-SHA256(prk, "r2i") for the other way
  * </pre>
@@ -84,7 +84,7 @@ public final class SecureChannel implements Closeable {
 
     private static SecureChannel handshake(final Socket socket, final String secret, final boolean compress, final boolean initiator) throws IOException {
         if (secret == null || secret.length() < 8) {
-            throw new IOException("offload secret must be at least 8 characters");
+            throw new IOException("secret must be at least 8 characters");
         }
         socket.setTcpNoDelay(true);
         final DataInputStream in = new DataInputStream(new BufferedInputStream(socket.getInputStream(), 64 * 1024));
@@ -98,7 +98,7 @@ public final class SecureChannel implements Closeable {
         final String magic = in.readUTF();
         final int version = in.readInt();
         if (!MAGIC.equals(magic)) {
-            throw new IOException("not a Storia offload peer");
+            throw new IOException("not a Storia peer");
         }
         if (version != VERSION) {
             throw new IOException("protocol version mismatch: this side " + VERSION + ", peer " + version + " (update both to the same Storia release)");

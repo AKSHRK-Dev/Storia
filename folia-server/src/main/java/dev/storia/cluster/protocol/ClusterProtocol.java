@@ -9,15 +9,15 @@ import java.io.UncheckedIOException;
 
 /**
  * Storia Cluster messages between nodes and the coordinator (Storia Relay with cluster mode on).
- * No Minecraft classes, so the relay can use it too. Sent over {@link dev.storia.offload.protocol.SecureChannel}
- * after the offload HELLO with role {@link #ROLE_NODE}.
+ * No Minecraft classes, so the relay can use it too. Sent over {@link dev.storia.net.SecureChannel}
+ * after the {@link dev.storia.net.Handshake} HELLO with role {@link #ROLE_NODE} or {@link #ROLE_PROXY}.
  *
  * <p>Every message starts with a type byte. Requests carry a request id that the response repeats;
  * pushes are unsolicited messages from the coordinator.
  */
 public final class ClusterProtocol {
 
-    /** HELLO role for cluster nodes (offload uses 0 = server, 1 = worker). */
+    /** HELLO role for cluster nodes (0 and 1 were used by the removed terrain offload). */
     public static final byte ROLE_NODE = 2;
     /** HELLO role for Storia Proxy instances that route players between nodes. */
     public static final byte ROLE_PROXY = 3;
@@ -60,6 +60,11 @@ public final class ClusterProtocol {
      * or a request for a snapshot (target "?", empty data).
      */
     public static final byte OP_SCOREBOARD = 20;
+    /**
+     * Node -> coordinator, on first start: the world's base files (level.dat, world generation settings, data
+     * packs and other data; no chunks, entities, POI or player data) as a zip, so a new worker needs no copy.
+     */
+    public static final byte OP_WORLD_BASE = 21;
 
     // pushes, coordinator -> node
     /** Save, unload and release these cells soon (another node takes them over). */
