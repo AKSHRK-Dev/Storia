@@ -146,6 +146,9 @@ in `config/paper-global.yml` if your CPU has headroom.
 
 ## Storia Cluster
 
+> Storia Worker and Storia Relay are only for a cluster; a worker cannot be added to a single Storia server. To move
+> an existing server into a cluster, see https://storiamc.com/en-us/docs/scaling/
+
 ```
 players --> Storia Proxy --> Storia Worker A --\
                          \-> Storia Worker B ---> Storia Relay: the world, who runs what

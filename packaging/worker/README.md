@@ -1,5 +1,10 @@
 # Storia Worker
 
+> **A worker does not work with a single Storia server.** It needs Storia Relay, which holds the world. To grow
+> from one server to several, see https://storiamc.com/en-us/docs/scaling/
+> ワーカーは単体の Storia サーバーには使えません（Storia Relay が必要です）。1 台から増やす方法：
+> https://storiamc.com/ja-jp/docs/scaling/
+
 A Storia Worker is one server of a **Storia Cluster**: several servers run one world together, each the part
 where its players are, and players move between them through Storia Proxy without a loading screen. Add a
 worker when your players outgrow one machine.

@@ -144,6 +144,9 @@ player-budget:
 
 ## Storia Cluster
 
+> Storia Worker と Storia Relay は Cluster 専用です。単体の Storia サーバーにワーカーを足すことはできません。
+> いまのサーバーを Cluster に移す方法：https://storiamc.com/ja-jp/docs/scaling/
+
 ```
 プレイヤー --> Storia Proxy --> Storia Worker A --\
                             \-> Storia Worker B ---> Storia Relay：ワールドと、どこを誰が動かすか
