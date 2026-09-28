@@ -19,3 +19,4 @@ build
 .idea/
 /storia-relay/build
 /storia-relay/.gradle
+/folia-server/src/main/resources/storia-version.txt

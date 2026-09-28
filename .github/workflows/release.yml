@@ -45,6 +45,7 @@ jobs:
 
       - name: Build Storia server
         run: |
+          echo "${TAG#v}" > folia-server/src/main/resources/storia-version.txt
           ./gradlew applyAllPatches --stacktrace
           ./gradlew createPaperclipJar --stacktrace
       - name: Build Storia Relay
