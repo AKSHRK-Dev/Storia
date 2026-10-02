@@ -32,6 +32,11 @@ final class ClusterSpool {
     private final Map<String, Long> latestSeq = new ConcurrentHashMap<>();
     private final AtomicLong seq = new AtomicLong();
     private volatile int size;
+    /** A spooled write the coordinator could not store, and since when; retried until {@link #GIVE_UP_MILLIS}. */
+    private final Map<String, Long> failingSince = new ConcurrentHashMap<>();
+    private static final long GIVE_UP_MILLIS = 10 * 60_000L;
+    private static final long RETRY_MILLIS = 5_000L;
+    private volatile long lastFailure;
 
     ClusterSpool() {
         try {
@@ -95,6 +100,9 @@ final class ClusterSpool {
 
     /** Sends spooled writes in order until one fails. Returns how many were sent. */
     synchronized int drain(final ClusterClient client) {
+        if (!this.failingSince.isEmpty() && System.currentTimeMillis() - this.lastFailure < RETRY_MILLIS) {
+            return 0; // the coordinator could not store the oldest write a moment ago; give it time
+        }
         int sent = 0;
         try {
             for (final Path file : this.files()) {
@@ -107,8 +115,25 @@ final class ClusterSpool {
                 if (response.status() == ClusterProtocol.DENIED) {
                     LOGGER.warn("Storia Cluster: a spooled write for {} was refused (another node owns it now); dropped", entry.key());
                 } else if (response.status() != ClusterProtocol.OK) {
-                    LOGGER.warn("Storia Cluster: a spooled write for {} failed: {}", entry.key(), ClusterProtocol.readString(response.body()));
+                    // the relay could not store it (disk full, ...): keep it, and everything after it, and try again later
+                    final String reason = ClusterProtocol.readString(response.body());
+                    final long now = System.currentTimeMillis();
+                    final Long first = this.failingSince.putIfAbsent(file.getFileName().toString(), now);
+                    if (first == null) {
+                        LOGGER.warn("Storia Cluster: the coordinator could not store a spooled write for {} ({}); keeping it and retrying", entry.key(), reason);
+                    }
+                    if (first == null || now - first < GIVE_UP_MILLIS) {
+                        this.lastFailure = now;
+                        break;
+                    }
+                    // still failing after a long time: set it aside (never deleted) so the writes after it can go
+                    final Path failed = DIR.resolve("failed");
+                    Files.createDirectories(failed);
+                    Files.move(file, failed.resolve(file.getFileName()), StandardCopyOption.REPLACE_EXISTING);
+                    LOGGER.error("Storia Cluster: the coordinator kept refusing a spooled write for {} ({}); moved it to {} and went on",
+                        entry.key(), reason, failed.toAbsolutePath());
                 }
+                this.failingSince.remove(file.getFileName().toString());
                 Files.deleteIfExists(file);
                 this.size--;
                 sent++;

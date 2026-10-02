@@ -39,13 +39,13 @@ public final class SharedData {
 
     public static void checkNamespace(final String namespace) {
         if (namespace == null || !NAMESPACE.matcher(namespace).matches()) {
-            throw new IllegalArgumentException("namespace must be 1 to 64 characters of a-z 0-9 _ . - : " + namespace);
+            throw new IllegalArgumentException("namespace must be 1 to 64 characters from a-z, 0-9, '_', '.' and '-' (got: " + namespace + ")");
         }
     }
 
     public static void checkChannel(final String channel) {
         if (channel == null || !CHANNEL.matcher(channel).matches()) {
-            throw new IllegalArgumentException("channel must be 1 to 64 characters of a-z 0-9 _ . : - : " + channel);
+            throw new IllegalArgumentException("channel must be 1 to 64 characters from a-z, 0-9, '_', '.', ':' and '-' (got: " + channel + ")");
         }
     }
 

@@ -37,6 +37,13 @@ public final class ClusterGlobal {
     /** Last clock value applied from the primary and when, per key. */
     private static final Map<String, long[]> appliedClock = new ConcurrentHashMap<>();
 
+    private static final java.util.concurrent.atomic.AtomicBoolean SENDING = new java.util.concurrent.atomic.AtomicBoolean();
+    private static final java.util.concurrent.ExecutorService SENDER = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        final Thread thread = new Thread(r, "Storia Cluster global");
+        thread.setDaemon(true);
+        return thread;
+    });
+
     private ClusterGlobal() {}
 
     /** Whether this node follows another node's weather instead of running its own cycle. */
@@ -54,12 +61,30 @@ public final class ClusterGlobal {
         if (server == null || !Cluster.serverStarted) { // Folia never sets isReady()
             return;
         }
-        RegionizedServer.getInstance().addTask(() -> {
-            final Map<String, String> state = collect(server);
-            final Thread sender = new Thread(() -> send(client, state), "Storia Cluster global");
-            sender.setDaemon(true);
-            sender.start();
-        });
+        // one report at a time: while the coordinator is slow, skip seconds instead of piling up reports
+        if (!SENDING.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            RegionizedServer.getInstance().addTask(() -> {
+                try {
+                    final Map<String, String> state = collect(server);
+                    SENDER.execute(() -> {
+                        try {
+                            send(client, state);
+                        } finally {
+                            SENDING.set(false);
+                        }
+                    });
+                } catch (final RuntimeException ex) {
+                    SENDING.set(false);
+                    throw ex;
+                }
+            });
+        } catch (final RuntimeException ex) {
+            SENDING.set(false);
+            throw ex;
+        }
     }
 
     private static Map<String, String> collect(final MinecraftServer server) {

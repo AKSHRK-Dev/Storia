@@ -174,15 +174,41 @@ public final class ClusterScoreboard {
         }
     }
 
-    /** Sends in order on one thread; region threads never wait for the coordinator. */
+    /** How long a change waits for the coordinator before it is given up. */
+    private static final long GIVE_UP_MILLIS = 10 * 60_000L;
+
+    /**
+     * Sends in order on one thread; region threads never wait for the coordinator. While the coordinator is away, the
+     * change waits (and the ones after it queue up behind it), so other nodes still get every change, in order.
+     */
     private static void send(final ClusterClient client, final String target, final CompoundTag op) {
         SENDER.execute(() -> {
+            final byte[] body;
             try {
                 final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
                 NbtIo.writeCompressed(op, bytes);
-                client.request(ClusterProtocol.OP_SCOREBOARD, ClusterProtocol.named(target, bytes.toByteArray()));
+                body = ClusterProtocol.named(target, bytes.toByteArray());
             } catch (final IOException ex) {
-                LOGGER.debug("Could not send a scoreboard change: {}", ex.toString());
+                LOGGER.warn("Could not encode a scoreboard change: {}", ex.toString());
+                return;
+            }
+            final long deadline = System.currentTimeMillis() + GIVE_UP_MILLIS;
+            while (true) {
+                try {
+                    client.request(ClusterProtocol.OP_SCOREBOARD, body);
+                    return;
+                } catch (final IOException ex) {
+                    if (System.currentTimeMillis() > deadline) {
+                        LOGGER.warn("Storia Cluster: gave up sending a scoreboard change after 10 minutes without the coordinator: {}", ex.toString());
+                        return;
+                    }
+                    try {
+                        Thread.sleep(2000L);
+                    } catch (final InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
             }
         });
     }

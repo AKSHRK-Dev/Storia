@@ -488,10 +488,12 @@ public final class ClusterCoordinator {
             // keep the group under one owner: a free cell joins its partner's owner
             final String ownerA = this.owners.get(a);
             final String ownerB = this.owners.get(b);
-            if (ownerA != null && ownerB == null) {
+            // a cell another node let go of a moment ago is not handed over yet: its last saves may still be on the way.
+            // The next claim of either cell then waits and takes the whole group.
+            if (ownerA != null && ownerB == null && this.quietFor(b, ownerA)) {
                 this.owners.put(b, ownerA);
                 this.idle.add(b);
-            } else if (ownerB != null && ownerA == null) {
+            } else if (ownerB != null && ownerA == null && this.quietFor(a, ownerB)) {
                 this.owners.put(a, ownerB);
                 this.idle.add(a);
             } else if (ownerA != null && !ownerA.equals(ownerB)) {
@@ -519,6 +521,12 @@ public final class ClusterCoordinator {
             count++;
         }
         this.log.accept("Loaded " + count + " contraption link(s)");
+    }
+
+    /** Whether {@code node} may take the free cell now: nobody else released it within the quiet period. */
+    private boolean quietFor(final Cell cell, final String node) {
+        final Released last = this.released.get(cell);
+        return last == null || last.node().equals(node) || System.currentTimeMillis() - last.at() >= RELEASE_QUIET_MILLIS;
     }
 
     /** The owner may write; so may the last owner of a free cell, for saves that were in flight when it released. */

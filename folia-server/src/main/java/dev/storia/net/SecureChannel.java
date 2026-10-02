@@ -114,7 +114,10 @@ public final class SecureChannel implements Closeable {
             final byte[] i2r = hmac(prk, "i2r".getBytes(StandardCharsets.US_ASCII));
             final byte[] r2i = hmac(prk, "r2i".getBytes(StandardCharsets.US_ASCII));
             final SecureChannel channel = new SecureChannel(socket, in, out, initiator ? i2r : r2i, initiator ? r2i : i2r, compress);
-            socket.setSoTimeout(0);
+            if (initiator) {
+                socket.setSoTimeout(0);
+            }
+            // the accepting side keeps the timeout until the peer has said who it is (see clearReadTimeout)
             return channel;
         } catch (final GeneralSecurityException ex) {
             throw new IOException("crypto setup failed", ex);
@@ -243,6 +246,11 @@ public final class SecureChannel implements Closeable {
         } finally {
             inflater.end();
         }
+    }
+
+    /** Lets {@link #receive()} wait as long as it takes; the accepting side calls it once the first message is in. */
+    public void clearReadTimeout() throws IOException {
+        this.socket.setSoTimeout(0);
     }
 
     public String remoteAddress() {

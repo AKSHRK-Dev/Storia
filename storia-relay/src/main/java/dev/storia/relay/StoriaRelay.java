@@ -88,6 +88,16 @@ public final class StoriaRelay {
         final Path world = Path.of(this.config.getProperty("cluster-world", "cluster-world"));
         this.cluster = new ClusterCoordinator(world, StoriaRelay::log);
         log("Cluster mode on: storing the shared world in " + world.toAbsolutePath());
+        // on stop (console, Ctrl+C or systemd), write everything out to disk before the process ends
+        final ClusterCoordinator coordinator = this.cluster;
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                coordinator.close();
+                log("World files written to disk.");
+            } catch (final IOException ex) {
+                log("Could not write the world files to disk on stop: " + ex.getMessage());
+            }
+        }, "relay shutdown"));
         final String bind = this.config.getProperty("bind", "0.0.0.0");
         final int port = Integer.parseInt(this.config.getProperty("port", "25590"));
         final Thread console = new Thread(this::console, "console");
@@ -131,6 +141,7 @@ public final class StoriaRelay {
         try {
             channel = SecureChannel.respond(socket, this.secret, this.compress);
             hello = Handshake.readHello(channel.receive());
+            channel.clearReadTimeout();
         } catch (final IOException ex) {
             log("Rejected " + socket.getRemoteSocketAddress() + ": " + ex.getMessage());
             try {
