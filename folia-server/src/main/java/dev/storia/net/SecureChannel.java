@@ -153,7 +153,15 @@ public final class SecureChannel implements Closeable {
 
     /** Sends one frame. Safe to call from several threads. */
     public void send(final byte[] payload) throws IOException {
-        final byte[] plain = this.pack(payload);
+        this.send(payload, true);
+    }
+
+    /**
+     * Sends one frame. {@code compressible} false skips deflate for payloads that are already compressed (chunk
+     * records, player data, zips): deflating them again saves nothing and costs CPU on both ends.
+     */
+    public void send(final byte[] payload, final boolean compressible) throws IOException {
+        final byte[] plain = this.pack(payload, compressible);
         synchronized (this.out) {
             final byte[] sealed;
             try {
@@ -188,8 +196,8 @@ public final class SecureChannel implements Closeable {
         return unpack(plain);
     }
 
-    private byte[] pack(final byte[] payload) {
-        if (!this.compress || payload.length <= 256) {
+    private byte[] pack(final byte[] payload, final boolean compressible) {
+        if (!this.compress || !compressible || payload.length <= 256) {
             final byte[] plain = new byte[payload.length + 1];
             System.arraycopy(payload, 0, plain, 1, payload.length);
             return plain;

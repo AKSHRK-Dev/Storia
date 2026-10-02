@@ -62,8 +62,11 @@ public final class ClusterCoordinator {
     // ---- phase 2: placement and player transfers ----
     /** Which node holds each player's data (only it may write it). */
     private final Map<String, String> playerHolder = new ConcurrentHashMap<>();
-    /** Last known position of each player. */
+    /** Last known position of each player; kept on disk so a relay restart still sends returning players home. */
     private final Map<String, ClusterProtocol.PlayerPos> lastPos = new ConcurrentHashMap<>();
+    private final Path positionsFile;
+    private volatile boolean positionsChanged;
+    private long positionsSaved;
     private final Map<String, Transfer> transfers = new ConcurrentHashMap<>();
     private final java.util.Set<SecureChannel> proxies = ConcurrentHashMap.newKeySet();
     private final AtomicLong moves = new AtomicLong();
@@ -81,7 +84,9 @@ public final class ClusterCoordinator {
         this.shared = new dev.storia.cluster.protocol.SharedData(world.resolve("storia-shared"));
         this.log = log;
         this.linksFile = world.resolve("storia-cluster-links.txt");
+        this.positionsFile = world.resolve("storia-cluster-positions.txt");
         this.loadLinks();
+        this.loadPositions();
         final Thread reaper = new Thread(this::reapLoop, "cluster heartbeats");
         reaper.setDaemon(true);
         reaper.start();
@@ -156,7 +161,7 @@ public final class ClusterCoordinator {
                         response = new ClusterProtocol.Response(request.id(), ClusterProtocol.ERROR, ClusterProtocol.string(String.valueOf(ex.getMessage())));
                     }
                     try {
-                        channel.send(ClusterProtocol.response(response));
+                        channel.send(ClusterProtocol.response(response), ClusterProtocol.compressibleResponse(request.op()));
                     } catch (final IOException ignored) {
                         // node gone; cleanup happens in the finally below
                     }
@@ -263,7 +268,9 @@ public final class ClusterCoordinator {
             case ClusterProtocol.OP_ACTIVE -> {
                 node.active = ClusterProtocol.readActive(request.body());
                 for (final ClusterProtocol.PlayerPos pos : node.active.players()) {
-                    this.lastPos.put(pos.uuid(), pos);
+                    if (!pos.equals(this.lastPos.put(pos.uuid(), pos))) {
+                        this.positionsChanged = true;
+                    }
                 }
                 yield new ClusterProtocol.Response(id, ClusterProtocol.OK, null);
             }
@@ -504,6 +511,35 @@ public final class ClusterCoordinator {
         this.log.accept("Linked " + a + " and " + b + " (a contraption spans the border; reported by " + node.name + ")");
     }
 
+    /** One line per player: uuid, dimension, chunk x, chunk z. */
+    private void loadPositions() {
+        if (!Files.exists(this.positionsFile)) {
+            return;
+        }
+        try {
+            for (final String line : Files.readAllLines(this.positionsFile)) {
+                final String[] parts = line.trim().split(" ");
+                if (parts.length == 4 && UUID.matcher(parts[0]).matches()) {
+                    this.lastPos.put(parts[0], new ClusterProtocol.PlayerPos(parts[0], parts[1], Integer.parseInt(parts[2]), Integer.parseInt(parts[3])));
+                }
+            }
+            this.log.accept("Loaded the last position of " + this.lastPos.size() + " player(s)");
+        } catch (final IOException | RuntimeException ex) {
+            this.log.accept("Could not read " + this.positionsFile + " (" + ex.getMessage() + "); players join the least busy worker until they are seen again");
+        }
+    }
+
+    private void savePositions() throws IOException {
+        this.positionsChanged = false;
+        final StringBuilder out = new StringBuilder();
+        for (final ClusterProtocol.PlayerPos pos : this.lastPos.values()) {
+            out.append(pos.uuid()).append(' ').append(pos.dimension()).append(' ').append(pos.chunkX()).append(' ').append(pos.chunkZ()).append('\n');
+        }
+        final Path temp = this.positionsFile.resolveSibling(this.positionsFile.getFileName() + ".tmp");
+        Files.writeString(temp, out);
+        AnvilStore.move(temp, this.positionsFile);
+    }
+
     private void loadLinks() throws IOException {
         if (!Files.exists(this.linksFile)) {
             return;
@@ -564,6 +600,10 @@ public final class ClusterCoordinator {
                 }
                 this.released.values().removeIf(r -> now - r.at() > 10 * RELEASE_QUIET_MILLIS);
                 this.store.flush();
+                if (this.positionsChanged && now - this.positionsSaved > 30_000L) {
+                    this.savePositions();
+                    this.positionsSaved = now;
+                }
             } catch (final InterruptedException ex) {
                 return;
             } catch (final Exception ex) {
@@ -894,6 +934,9 @@ public final class ClusterCoordinator {
     }
 
     public void close() throws IOException {
+        if (this.positionsChanged) {
+            this.savePositions();
+        }
         this.store.close();
     }
 }

@@ -144,6 +144,19 @@ public final class ClusterProtocol {
         return message[0];
     }
 
+    /**
+     * Whether a request's body is worth deflating on the wire. Chunk records, player data and data files are
+     * already compressed, so deflating them again only costs CPU.
+     */
+    public static boolean compressibleRequest(final byte op) {
+        return op != OP_WRITE && op != OP_PLAYER_WRITE && op != OP_DATA_WRITE;
+    }
+
+    /** Whether the response to a request is worth deflating on the wire (see {@link #compressibleRequest}). */
+    public static boolean compressibleResponse(final byte op) {
+        return op != OP_READ && op != OP_PLAYER_READ && op != OP_DATA_READ && op != OP_WORLD_BASE;
+    }
+
     public static byte[] request(final Request request) {
         return write(out -> {
             out.writeByte(REQUEST);

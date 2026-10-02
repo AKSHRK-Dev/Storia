@@ -75,6 +75,12 @@ public final class Cluster {
      * them are refused, so a failed read (empty data in memory) never overwrites the real data.
      */
     private static final Set<String> unreadable = ConcurrentHashMap.newKeySet();
+    /** Small jobs that wait for the coordinator (link reports, move confirmations), off the region threads. */
+    private static final java.util.concurrent.ExecutorService TASKS = java.util.concurrent.Executors.newFixedThreadPool(4, r -> {
+        final Thread thread = new Thread(r, "Storia Cluster task");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     static final AtomicLong reads = new AtomicLong();
     static final AtomicLong writes = new AtomicLong();
@@ -663,7 +669,7 @@ public final class Cluster {
             p.getAdvancements().save();
             p.getStats().save();
             final int entityId = p.getId();
-            final Thread thread = new Thread(() -> {
+            TASKS.execute(() -> {
                 try {
                     client.request(ClusterProtocol.OP_TRANSFER_READY, ClusterProtocol.string(uuid + " " + entityId));
                     playersSent.incrementAndGet();
@@ -671,9 +677,7 @@ public final class Cluster {
                     LOGGER.warn("Could not confirm the move of {}: {}", p.getPlainTextName(), ex.getMessage());
                     movingOut.remove(p.getUUID());
                 }
-            }, "Storia Cluster transfer");
-            thread.setDaemon(true);
-            thread.start();
+            });
         }, null, 1L);
     }
 
@@ -765,16 +769,14 @@ public final class Cluster {
         if (!linksSent.add(id)) {
             return;
         }
-        final Thread thread = new Thread(() -> {
+        TASKS.execute(() -> {
             try {
                 client.request(ClusterProtocol.OP_LINK, ClusterProtocol.link(a, b));
                 links.incrementAndGet();
             } catch (final IOException ex) {
                 linksSent.remove(id);
             }
-        }, "Storia Cluster link");
-        thread.setDaemon(true);
-        thread.start();
+        });
     }
 
     // ---------------------------------------------------------------------------------------------

@@ -171,7 +171,7 @@ final class ClusterClient {
             final CompletableFuture<ClusterProtocol.Response> future = new CompletableFuture<>();
             this.pending.put(id, future);
             try {
-                channel.send(ClusterProtocol.request(new ClusterProtocol.Request(id, op, body)));
+                channel.send(ClusterProtocol.request(new ClusterProtocol.Request(id, op, body)), ClusterProtocol.compressibleRequest(op));
                 return future.get(REQUEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
             } catch (final InterruptedException ex) {
                 Thread.currentThread().interrupt();
