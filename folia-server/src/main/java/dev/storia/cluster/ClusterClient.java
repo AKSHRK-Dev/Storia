@@ -23,18 +23,37 @@ import org.slf4j.Logger;
  */
 final class ClusterClient {
 
-    /** host:port of the coordinator. */
+    /** host:port of a coordinator. */
     record Address(String host, int port) {
         static Address parse(final String address, final int defaultPort) {
-            final int colon = address.lastIndexOf(':');
-            return colon < 0 ? new Address(address, defaultPort) : new Address(address.substring(0, colon), Integer.parseInt(address.substring(colon + 1)));
+            final String trimmed = address.trim();
+            final int colon = trimmed.lastIndexOf(':');
+            return colon < 0 ? new Address(trimmed, defaultPort) : new Address(trimmed.substring(0, colon), Integer.parseInt(trimmed.substring(colon + 1)));
+        }
+
+        /** "relay-a:25590,relay-b:25590": the active relay and its standby, tried in order. */
+        static java.util.List<Address> parseList(final String addresses, final int defaultPort) {
+            final java.util.List<Address> list = new java.util.ArrayList<>();
+            for (final String address : addresses.split(",")) {
+                if (!address.isBlank()) {
+                    list.add(parse(address, defaultPort));
+                }
+            }
+            return list;
+        }
+
+        @Override
+        public String toString() {
+            return this.host + ":" + this.port;
         }
     }
 
     private static final Logger LOGGER = LogUtils.getClassLogger();
     private static final long REQUEST_TIMEOUT_MILLIS = 30_000L;
 
-    private final Address coordinator;
+    private final java.util.List<Address> coordinators;
+    /** The relay this node is connected to (or last was). */
+    private volatile Address coordinator;
     private final String secret;
     private final String name;
     private final AtomicLong ids = new AtomicLong();
@@ -51,8 +70,9 @@ final class ClusterClient {
         return thread;
     });
 
-    ClusterClient(final Address coordinator, final String secret, final String name) {
-        this.coordinator = coordinator;
+    ClusterClient(final java.util.List<Address> coordinators, final String secret, final String name) {
+        this.coordinators = java.util.List.copyOf(coordinators);
+        this.coordinator = this.coordinators.get(0);
         this.secret = secret;
         this.name = name;
     }
@@ -62,7 +82,7 @@ final class ClusterClient {
     }
 
     String coordinatorAddress() {
-        return this.coordinator.host() + ":" + this.coordinator.port();
+        return this.coordinator.toString();
     }
 
     /** Connects, retrying for up to {@code waitMillis}. */
@@ -75,7 +95,7 @@ final class ClusterClient {
                 return;
             } catch (final IOException ex) {
                 last = ex;
-                LOGGER.warn("Could not reach the cluster coordinator at {}: {}; retrying", this.coordinatorAddress(), ex.getMessage());
+                LOGGER.warn("Could not reach the cluster coordinator ({}); retrying", ex.getMessage());
                 try {
                     Thread.sleep(2000L);
                 } catch (final InterruptedException ie) {
@@ -87,16 +107,34 @@ final class ClusterClient {
         throw last != null ? last : new IOException("could not connect to the cluster coordinator");
     }
 
+    /** Connects to the first relay in the list that is the active one (a standby says so and is skipped). */
     private synchronized void open() throws IOException {
+        final java.util.List<String> failures = new java.util.ArrayList<>();
+        for (final Address address : this.coordinators) {
+            try {
+                this.open(address);
+                return;
+            } catch (final IOException ex) {
+                failures.add(ex.getMessage() != null && ex.getMessage().startsWith(address.toString()) ? ex.getMessage() : address + ": " + ex.getMessage());
+            }
+        }
+        throw new IOException(String.join("; ", failures));
+    }
+
+    private void open(final Address address) throws IOException {
         final Socket socket = new Socket();
-        socket.connect(new InetSocketAddress(this.coordinator.host(), this.coordinator.port()), 5000);
+        socket.connect(new InetSocketAddress(address.host(), address.port()), 5000);
         socket.setTcpNoDelay(true);
         final SecureChannel channel = SecureChannel.initiate(socket, this.secret, true);
-        channel.send(Handshake.hello(new Handshake.Hello(ClusterProtocol.ROLE_NODE, 0, Map.of("node", this.name, "instance", this.instance))));
+        final Map<String, String> hello = new java.util.HashMap<>(Map.of("node", this.name, "instance", this.instance));
+        if (this.index >= 0) {
+            hello.put("index", Integer.toString(this.index)); // keep our entity ids on a relay that restarted or took over
+        }
+        channel.send(Handshake.hello(new Handshake.Hello(ClusterProtocol.ROLE_NODE, 0, hello)));
         final Handshake.Welcome welcome = Handshake.readWelcome(channel.receive());
         if (!welcome.ok()) {
             channel.close();
-            throw new IOException("coordinator refused this node: " + welcome.message());
+            throw new IOException(address + " refused this node: " + welcome.message());
         }
         final int index = Integer.parseInt(welcome.message().replace("index=", "").trim());
         if (this.index >= 0 && index != this.index) {
@@ -104,6 +142,7 @@ final class ClusterClient {
             throw new IOException("coordinator gave a different node index (" + index + " instead of " + this.index + "); restart this node");
         }
         this.index = index;
+        this.coordinator = address;
         this.channel = channel;
         final Thread reader = new Thread(() -> this.readLoop(channel), "Storia Cluster reader");
         reader.setDaemon(true);
@@ -144,7 +183,7 @@ final class ClusterClient {
             while (!this.closed && this.channel == null) {
                 try {
                     this.open();
-                    LOGGER.info("Reconnected to the cluster coordinator");
+                    LOGGER.info("Reconnected to the cluster coordinator at {}", this.coordinatorAddress());
                     final Thread reclaim = new Thread(Cluster::onReconnect, "Storia Cluster reclaim");
                     reclaim.setDaemon(true);
                     reclaim.start();

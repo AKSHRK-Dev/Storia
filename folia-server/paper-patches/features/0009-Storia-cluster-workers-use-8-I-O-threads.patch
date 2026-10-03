@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AKSHRK-Dev <311836316+AKSHRK-Dev@users.noreply.github.com>
+Date: Sat, 3 Oct 2026 11:02:06 +0900
+Subject: [PATCH] Storia cluster workers use 8 I/O threads
+
+
+diff --git a/src/main/java/ca/spottedleaf/moonrise/common/util/MoonriseCommon.java b/src/main/java/ca/spottedleaf/moonrise/common/util/MoonriseCommon.java
+index b9f788693b0c4be48e8a923a3dec50555d135e7e..095efdec29a22e162c3a04a9adb00f62f68c40ea 100644
+--- a/src/main/java/ca/spottedleaf/moonrise/common/util/MoonriseCommon.java
++++ b/src/main/java/ca/spottedleaf/moonrise/common/util/MoonriseCommon.java
+@@ -54,7 +54,9 @@ public final class MoonriseCommon {
+             workerThreads = defaultWorkerThreads;
+         }
+ 
+-        final int ioThreads = Math.max(1, configIoThreads);
++        // Storia start - a cluster worker reads and writes chunks over the network, not the disk: overlap the round trips
++        final int ioThreads = configIoThreads <= 0 && dev.storia.cluster.Cluster.enabled() ? 8 : Math.max(1, configIoThreads);
++        // Storia end - a cluster worker reads and writes chunks over the network, not the disk: overlap the round trips
+ 
+         WORKER_POOL.adjustThreadCount(workerThreads);
+         IO_POOL.adjustThreadCount(ioThreads);

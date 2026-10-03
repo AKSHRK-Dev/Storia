@@ -21,6 +21,8 @@ public final class ClusterProtocol {
     public static final byte ROLE_NODE = 2;
     /** HELLO role for Storia Proxy instances that route players between nodes. */
     public static final byte ROLE_PROXY = 3;
+    /** A standby Storia Relay copying the active relay's data (see STANDBY.md). */
+    public static final byte ROLE_REPLICA = 4;
 
     public static final byte REQUEST = 20;
     public static final byte RESPONSE = 21;

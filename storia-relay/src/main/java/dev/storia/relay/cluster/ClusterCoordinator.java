@@ -34,6 +34,10 @@ public final class ClusterCoordinator {
 
     private final Path world;
     private final AnvilStore store;
+    /** Sends every change to a standby relay, if one is connected (see STANDBY.md). */
+    private final Replication.Source replication;
+    /** Which index each node name has: kept on disk, so a node keeps its entity ids after a relay restart or failover. */
+    private final Path nodesFile;
     /** Plugin data shared by every worker (dev.storia.api), kept in storia-shared/ next to the world. */
     private final dev.storia.cluster.protocol.SharedData shared;
     private final Consumer<String> log;
@@ -83,6 +87,10 @@ public final class ClusterCoordinator {
         this.store = new AnvilStore(world);
         this.shared = new dev.storia.cluster.protocol.SharedData(world.resolve("storia-shared"));
         this.log = log;
+        this.replication = new Replication.Source(world.toAbsolutePath().normalize(), this.store, log);
+        this.shared.setFileListener((file, value) -> this.replication.file(file.toAbsolutePath().normalize(), value));
+        this.nodesFile = world.resolve("storia-cluster-nodes.txt");
+        this.loadIndexes();
         this.linksFile = world.resolve("storia-cluster-links.txt");
         this.positionsFile = world.resolve("storia-cluster-positions.txt");
         this.loadLinks();
@@ -128,7 +136,7 @@ public final class ClusterCoordinator {
             this.log.accept("Refused a second worker named " + name + " from " + channel.remoteAddress() + " (the name is in use by " + current.channel.remoteAddress() + ")");
             return;
         }
-        final int index = this.indexes.computeIfAbsent(name, n -> this.nextIndex.getAndIncrement());
+        final int index = this.indexFor(name, hello.values().get("index"));
         if (index >= 128) {
             channel.send(Handshake.welcome(new Handshake.Welcome(false, "too many nodes")));
             return;
@@ -160,10 +168,21 @@ public final class ClusterCoordinator {
                     } catch (final Exception ex) {
                         response = new ClusterProtocol.Response(request.id(), ClusterProtocol.ERROR, ClusterProtocol.string(String.valueOf(ex.getMessage())));
                     }
-                    try {
-                        channel.send(ClusterProtocol.response(response), ClusterProtocol.compressibleResponse(request.op()));
-                    } catch (final IOException ignored) {
-                        // node gone; cleanup happens in the finally below
+                    // a write is answered once the standby has it too; this thread is free meanwhile
+                    final java.util.concurrent.CompletableFuture<Void> standby = STANDBY.get();
+                    STANDBY.remove();
+                    final ClusterProtocol.Response answer = response;
+                    final Runnable reply = () -> {
+                        try {
+                            channel.send(ClusterProtocol.response(answer), ClusterProtocol.compressibleResponse(request.op()));
+                        } catch (final IOException ignored) {
+                            // node gone; cleanup happens in the finally below
+                        }
+                    };
+                    if (standby == null || standby.isDone()) {
+                        reply.run();
+                    } else {
+                        standby.whenComplete((ok, ex) -> reply.run());
                     }
                 });
             }
@@ -173,6 +192,64 @@ public final class ClusterCoordinator {
             }
         }
     }
+
+    /**
+     * The node's index (its entity ids start at index << 24). A known name keeps its index; a node that already has
+     * one (it reconnects to a relay that restarted or took over) keeps it if nobody else has it.
+     */
+    private int indexFor(final String name, final String requested) throws IOException {
+        synchronized (this.indexes) {
+            final Integer known = this.indexes.get(name);
+            if (known != null) {
+                return known;
+            }
+            int index = -1;
+            try {
+                final int wanted = requested == null ? -1 : Integer.parseInt(requested);
+                if (wanted > 0 && wanted < 128 && !this.indexes.containsValue(wanted)) {
+                    index = wanted;
+                }
+            } catch (final NumberFormatException ignored) {
+                // a fresh index below
+            }
+            if (index < 0) {
+                index = this.nextIndex.get();
+                while (this.indexes.containsValue(index)) {
+                    index++;
+                }
+            }
+            this.indexes.put(name, index);
+            this.nextIndex.set(Math.max(this.nextIndex.get(), index + 1));
+            final StringBuilder out = new StringBuilder();
+            this.indexes.forEach((n, i) -> out.append(n).append(' ').append(i).append('\n'));
+            final Path temp = this.nodesFile.resolveSibling(this.nodesFile.getFileName() + ".tmp");
+            Files.writeString(temp, out);
+            AnvilStore.move(temp, this.nodesFile);
+            this.replication.file(this.nodesFile.toAbsolutePath().normalize());
+            return index;
+        }
+    }
+
+    private void loadIndexes() throws IOException {
+        if (!Files.exists(this.nodesFile)) {
+            return;
+        }
+        for (final String line : Files.readAllLines(this.nodesFile)) {
+            final String[] parts = line.trim().split(" ");
+            if (parts.length == 2) {
+                final int index = Integer.parseInt(parts[1]);
+                this.indexes.put(parts[0], index);
+                this.nextIndex.set(Math.max(this.nextIndex.get(), index + 1));
+            }
+        }
+    }
+
+    public Replication.Source replication() {
+        return this.replication;
+    }
+
+    /** Set by a write while it is handled: completes when the standby relay has stored it too. */
+    private static final ThreadLocal<java.util.concurrent.CompletableFuture<Void>> STANDBY = new ThreadLocal<>();
 
     private static boolean isOrdered(final byte op) {
         return op == ClusterProtocol.OP_KV_SET || op == ClusterProtocol.OP_KV_CAS || op == ClusterProtocol.OP_KV_INCR || op == ClusterProtocol.OP_PUBLISH;
@@ -219,6 +296,7 @@ public final class ClusterCoordinator {
                     yield new ClusterProtocol.Response(id, ClusterProtocol.DENIED, ClusterProtocol.string(String.valueOf(this.owners.get(cell))));
                 }
                 this.store.write(write.key(), write.record());
+                STANDBY.set(this.replication.chunk(write.key(), write.record()));
                 this.writes.incrementAndGet();
                 yield new ClusterProtocol.Response(id, ClusterProtocol.OK, null);
             }
@@ -258,6 +336,7 @@ public final class ClusterCoordinator {
                 final Path temp = file.resolveSibling(file.getFileName() + ".tmp");
                 Files.write(temp, player.data() == null ? new byte[0] : player.data());
                 AnvilStore.move(temp, file);
+                STANDBY.set(this.replication.fileAsync(file.toAbsolutePath().normalize(), player.data() == null ? new byte[0] : player.data()));
                 yield new ClusterProtocol.Response(id, ClusterProtocol.OK, null);
             }
             case ClusterProtocol.OP_HEARTBEAT -> {
@@ -356,6 +435,7 @@ public final class ClusterCoordinator {
                 final Path temp = file.resolveSibling(file.getFileName() + ".tmp");
                 Files.write(temp, data.data() == null ? new byte[0] : data.data());
                 AnvilStore.move(temp, file);
+                STANDBY.set(this.replication.fileAsync(file.toAbsolutePath().normalize(), data.data() == null ? new byte[0] : data.data()));
                 yield new ClusterProtocol.Response(id, ClusterProtocol.OK, null);
             }
             case ClusterProtocol.OP_WORLD_BASE -> new ClusterProtocol.Response(id, ClusterProtocol.OK, this.worldBase());
@@ -492,6 +572,7 @@ public final class ClusterCoordinator {
             this.links.computeIfAbsent(b, c -> ConcurrentHashMap.newKeySet()).add(a);
             Files.writeString(this.linksFile, a.dimension() + " " + a.x() + " " + a.z() + " " + b.x() + " " + b.z() + "\n",
                 java.nio.charset.StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+            this.replication.file(this.linksFile.toAbsolutePath().normalize());
             // keep the group under one owner: a free cell joins its partner's owner
             final String ownerA = this.owners.get(a);
             final String ownerB = this.owners.get(b);
@@ -538,6 +619,7 @@ public final class ClusterCoordinator {
         final Path temp = this.positionsFile.resolveSibling(this.positionsFile.getFileName() + ".tmp");
         Files.writeString(temp, out);
         AnvilStore.move(temp, this.positionsFile);
+        this.replication.file(this.positionsFile.toAbsolutePath().normalize());
     }
 
     private void loadLinks() throws IOException {
@@ -846,6 +928,7 @@ public final class ClusterCoordinator {
         final StringBuilder out = new StringBuilder();
         this.counters.forEach((k, v) -> out.append(k).append('=').append(v).append('\n'));
         Files.writeString(file, out.toString());
+        this.replication.file(file.toAbsolutePath().normalize());
         return next;
     }
 
@@ -897,6 +980,7 @@ public final class ClusterCoordinator {
         final List<String> lines = new ArrayList<>();
         lines.add("Cluster world " + this.world.toAbsolutePath() + ": " + this.nodes.size() + " node(s), " + this.owners.size()
             + " owned cell(s), " + this.proxies.size() + " proxy(ies), " + this.moves.get() + " player move(s), " + (this.links.values().stream().mapToInt(java.util.Set::size).sum() / 2) + " contraption link(s), " + this.reads.get() + " reads, " + this.writes.get() + " writes, " + this.denied.get() + " denied writes");
+        lines.add("  standby relay: " + this.replication.status());
         for (final Node node : this.nodes.values()) {
             final long cells = this.owners.values().stream().filter(node.name::equals).count();
             lines.add(String.format(java.util.Locale.ROOT, "  node %s (index %d, %s): %d cell(s), %d player(s), %.1f MSPT",

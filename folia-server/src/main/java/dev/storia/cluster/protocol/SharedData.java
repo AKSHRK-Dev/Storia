@@ -32,9 +32,21 @@ public final class SharedData {
 
     private final Path root;
     private final Map<String, Map<String, byte[]>> namespaces = new ConcurrentHashMap<>();
+    /** Told about every file written or deleted (a standby relay copies them); may be null. */
+    private volatile FileListener listener;
+
+    /** Hears about every file this store has just written ({@code value}) or deleted ({@code null}). */
+    @FunctionalInterface
+    public interface FileListener {
+        void stored(Path file, byte[] value) throws IOException;
+    }
 
     public SharedData(final Path root) {
         this.root = root;
+    }
+
+    public void setFileListener(final FileListener listener) {
+        this.listener = listener;
     }
 
     public static void checkNamespace(final String namespace) {
@@ -124,9 +136,13 @@ public final class SharedData {
     private void store(final String namespace, final Map<String, byte[]> map, final String key, final byte[] value) throws IOException {
         final Path folder = this.root.resolve(namespace);
         final Path file = folder.resolve(HEX.formatHex(key.getBytes(StandardCharsets.UTF_8)) + ".v");
+        final FileListener listener = this.listener;
         if (value == null) {
             Files.deleteIfExists(file);
             map.remove(key);
+            if (listener != null) {
+                listener.stored(file, null);
+            }
             return;
         }
         Files.createDirectories(folder);
@@ -138,6 +154,9 @@ public final class SharedData {
             Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
         }
         map.put(key, value.clone());
+        if (listener != null) {
+            listener.stored(file, value);
+        }
     }
 
     /** The keys and values of a namespace, read from disk the first time. */

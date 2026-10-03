@@ -1,6 +1,6 @@
 # Storia Relay standby (design)
 
-Status: design, not implemented. Target: a beta after 26.2-7-beta.
+Status: phase 1 (replication, `promote`, relay lists) is in 26.2-8-beta. Phase 2 (automatic failover) is not built yet.
 
 Today Storia Relay is the one part of a Storia Cluster that has no spare. Workers keep running while it is away
 (writes wait in `cluster-spool/`), but new players cannot log in, and if the relay's machine or disk is lost, the

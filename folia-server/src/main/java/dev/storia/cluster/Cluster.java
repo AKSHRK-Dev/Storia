@@ -116,9 +116,12 @@ public final class Cluster {
         if (secret == null || secret.length() < 8 || name == null || name.isBlank()) {
             throw new IllegalStateException("cluster.enabled is true, but cluster.node-name or a secret (at least 8 characters) is missing in storia.yml");
         }
-        final ClusterClient.Address coordinator = ClusterClient.Address.parse(config.getString("cluster.coordinator", "127.0.0.1:25590"), 25590);
+        final java.util.List<ClusterClient.Address> coordinators = ClusterClient.Address.parseList(config.getString("cluster.coordinator", "127.0.0.1:25590"), 25590);
+        if (coordinators.isEmpty()) {
+            throw new IllegalStateException("cluster.coordinator in storia.yml is empty");
+        }
         spool = new ClusterSpool();
-        final ClusterClient connection = new ClusterClient(coordinator, secret, name);
+        final ClusterClient connection = new ClusterClient(coordinators, secret, name);
         try {
             connection.connect(60_000L);
         } catch (final IOException ex) {
