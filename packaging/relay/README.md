@@ -16,7 +16,7 @@ players --> Storia Proxy --> Storia Worker A --\
 4. Workers: `cluster.coordinator: "relay-host:25590"` and the same `cluster.secret` in `storia.yml`.
 5. Storia Proxy: `[cluster]` with the same coordinator and secret in `storia-proxy.toml`.
 
-Standby relay (beta): run a second relay with `role=standby` and `peer=<this relay>`, set `peer=<the standby>` here,
+Standby relay: run a second relay with `role=standby` and `peer=<this relay>`, set `peer=<the standby>` here,
 and list both relays in the workers' and Storia Proxy's `coordinator` ("relay-a:25590,relay-b:25590"). If this relay
 is lost, type `promote` on the standby. Guide: https://storiamc.com/en-us/docs/relay/#standby
 
