@@ -84,6 +84,7 @@ public final class RamWorld {
      */
     public static Path init(final Path universe, final String levelName) {
         final YamlConfiguration config = loadConfig();
+        dev.storia.storage.LinearStorage.configure(config, universe, levelName); // before any world is read
         if (!config.getBoolean("ram-world.enabled")) {
             return universe;
         }
@@ -283,6 +284,12 @@ public final class RamWorld {
             "  in a busy place are never limited. lower-simulation-distance: true also lowers their simulation",
             "  distance. When the heap after GC passes memory-high-percent, everyone's view distance is lowered.",
             "",
+            "region-format: how chunks are stored on disk. anvil is vanilla (.mca). linear keeps each region as one",
+            "  Zstandard-compressed .linear file: about half the size of Anvil (much smaller in the End). Existing .mca",
+            "  regions are converted when first used; the .mca files are left in place until you delete them.",
+            "  compression-level 1 (fast) to 22 (small); flush-seconds: how often changed regions are written",
+            "  (a crash loses at most that much of chunk saving). Not used on Storia Workers (the relay stores the world).",
+            "",
             "cluster: run this server as a Storia Worker, one node of a Storia Cluster: several servers run one",
             "  world together, each the part where its players are, and players move between them through",
             "  Storia Proxy without a loading screen. coordinator is the Storia Relay (host:port) that stores the",
@@ -313,6 +320,9 @@ public final class RamWorld {
         config.addDefault("player-budget.memory-high-percent", 85);
         config.addDefault("player-budget.memory-low-percent", 70);
         config.addDefault("player-budget.fast-mover-speed", 12.0);
+        config.addDefault("region-format.type", "anvil");
+        config.addDefault("region-format.linear.compression-level", 1);
+        config.addDefault("region-format.linear.flush-seconds", 5);
         config.addDefault("cluster.enabled", false);
         config.addDefault("cluster.coordinator", "127.0.0.1:25590");
         config.addDefault("cluster.node-name", "");

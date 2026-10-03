@@ -93,6 +93,8 @@ public final class StoriaCommand extends Command {
 
     private void status(final CommandSender sender) {
         sender.sendMessage(text(ServerBuildInfo.buildInfo().brandName() + " " + ServerBuildInfo.buildInfo().asString(ServerBuildInfo.StringRepresentation.VERSION_SIMPLE), NamedTextColor.AQUA));
+        sender.sendMessage(line("Region files", text(dev.storia.storage.LinearStorage.enabled() ? "Linear" : "Anvil (.mca)", NamedTextColor.WHITE)));
+        dev.storia.storage.LinearStorage.status().forEach(l -> sender.sendMessage(text(" " + l, NamedTextColor.GRAY)));
         final RamWorld ramWorld = RamWorld.get();
         if (ramWorld == null) {
             sender.sendMessage(line("RAM world", text("disabled", NamedTextColor.YELLOW)));
