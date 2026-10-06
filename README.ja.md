@@ -54,6 +54,8 @@ Java 25 以上が必要です。
 java -Xmx8G -jar storia-26.2.jar nogui
 ```
 
+Pterodactyl や Pelican では、[`pterodactyl/`](pterodactyl/) の egg を取り込めば使えます。
+
 [Releases](../../releases/latest) からダウンロードできます：
 
 | ファイル | 内容 |

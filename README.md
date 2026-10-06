@@ -56,6 +56,8 @@ Requires Java 25 or newer.
 java -Xmx8G -jar storia-26.2.jar nogui
 ```
 
+On Pterodactyl or Pelican, import the eggs in [`pterodactyl/`](pterodactyl/).
+
 Download from [Releases](../../releases/latest):
 
 | File | What it is |

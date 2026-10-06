@@ -1,0 +1,55 @@
+{
+    "_comment": "Storia Proxy egg for Pterodactyl / Pelican. https://github.com/AKSHRK-Dev/Storia",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": "https://raw.githubusercontent.com/AKSHRK-Dev/Storia/main/pterodactyl/egg-storia-proxy.json"
+    },
+    "exported_at": "2026-10-06T12:00:00+09:00",
+    "name": "Storia Proxy",
+    "author": "support@ashikanw.com",
+    "description": "Storia Proxy is a Velocity fork that goes with Storia, with extra placeholders and Storia Cluster support. This egg installs the Storia Proxy jar from GitHub Releases.",
+    "features": [
+        "java_version",
+        "pid_limit"
+    ],
+    "docker_images": {
+        "Java 25": "ghcr.io/pterodactyl/yolks:java_25"
+    },
+    "file_denylist": [],
+    "startup": "java -Xms128M -XX:MaxRAMPercentage=95.0 -XX:+UseG1GC -XX:G1HeapRegionSize=4M -XX:+UnlockExperimentalVMOptions -XX:+ParallelRefProcEnabled -XX:+AlwaysPreTouch -jar {{SERVER_JARFILE}}",
+    "config": {
+        "files": "{\n    \"velocity.toml\": {\n        \"parser\": \"file\",\n        \"find\": {\n            \"bind\": \"bind = \\\"0.0.0.0:{{server.build.default.port}}\\\"\"\n        }\n    }\n}",
+        "startup": "{\n    \"done\": \"Done (\"\n}",
+        "logs": "{}",
+        "stop": "end"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/ash\n# Storia installer: downloads storia-proxy-<version>.jar from GitHub Releases.\n# STORIA_VERSION is \"latest\" (newest stable release) or a version such as 26.2-10 or 26.2-9-beta.\napk add --no-cache curl ca-certificates >/dev/null 2>&1 || true\nmkdir -p /mnt/server\ncd /mnt/server\n\nREPO=\"AKSHRK-Dev/Storia\"\nVERSION=\"${STORIA_VERSION:-latest}\"\nif [ \"$VERSION\" = \"latest\" ]; then\n  # /releases/latest redirects to /releases/tag/v<version>; no API token or rate limit needed\n  TAG=$(curl -fsSI \"https://github.com/$REPO/releases/latest\" | grep -i '^location:' | sed 's#.*/tag/##' | tr -d '\\r')\n  if [ -z \"$TAG\" ]; then\n    echo \"Could not find the latest Storia release.\"\n    exit 1\n  fi\n  VERSION=\"$TAG\"\nfi\nVERSION=\"${VERSION#v}\"\n\nURL=\"https://github.com/$REPO/releases/download/v$VERSION/storia-proxy-$VERSION.jar\"\necho \"Installing storia-proxy $VERSION\"\necho \"  $URL\"\nif ! curl -fsSL --retry 3 -o \"${SERVER_JARFILE}\" \"$URL\"; then\n  echo \"Download failed. Check that STORIA_VERSION ($VERSION) exists on https://github.com/$REPO/releases\"\n  exit 1\nfi\necho \"Done.\"\n",
+            "container": "ghcr.io/pterodactyl/installers:alpine",
+            "entrypoint": "ash"
+        }
+    },
+    "variables": [
+        {
+            "name": "Server jar file",
+            "description": "The name of the jar file to run.",
+            "env_variable": "SERVER_JARFILE",
+            "default_value": "server.jar",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|regex:/^([\\w\\d._-]+)(\\.jar)$/",
+            "field_type": "text"
+        },
+        {
+            "name": "Storia version",
+            "description": "\"latest\" for the newest stable release, or a version such as 26.2-10 or 26.2-9-beta (see https://github.com/AKSHRK-Dev/Storia/releases). Reinstall the server to change it.",
+            "env_variable": "STORIA_VERSION",
+            "default_value": "latest",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:40|regex:/^(latest|v?[0-9][0-9A-Za-z.-]*)$/",
+            "field_type": "text"
+        }
+    ]
+}
