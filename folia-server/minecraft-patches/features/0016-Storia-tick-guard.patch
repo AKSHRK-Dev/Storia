@@ -17,10 +17,10 @@ index a6ab9cb01f4f49f5f44b6ed324fa6d51139aabb6..f913223bd5535f93d1ec9fa4e50e09eb
          public final ThreadedRegionizer.ThreadedRegion<TickRegionData, TickRegionSectionData> region;
          public final ServerLevel world;
 diff --git a/net/minecraft/server/level/ServerLevel.java b/net/minecraft/server/level/ServerLevel.java
-index 35ab432bbd59aba80a6eaca1769e6aa82c8a7e46..3f35a0b62e74580495dbb56d2a82139c197ddcb7 100644
+index 3d352bb9b0606236d789a70897d7bec12bcf6846..99b8db0ad2599f26e604e1661e85ef63edcdf546 100644
 --- a/net/minecraft/server/level/ServerLevel.java
 +++ b/net/minecraft/server/level/ServerLevel.java
-@@ -814,6 +814,7 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+@@ -820,6 +820,7 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
  
      public void tick(BooleanSupplier haveTime, final io.papermc.paper.threadedregions.TickRegions.TickRegionData region) { // Folia - regionised ticking
          final io.papermc.paper.threadedregions.RegionizedWorldData regionizedWorldData = this.getCurrentWorldData(); // Folia - regionised ticking
@@ -28,19 +28,19 @@ index 35ab432bbd59aba80a6eaca1769e6aa82c8a7e46..3f35a0b62e74580495dbb56d2a82139c
          final ca.spottedleaf.leafprofiler.RegionizedProfiler.Handle foliaProfiler = io.papermc.paper.threadedregions.TickRegionScheduler.getProfiler(); // Folia - profiler
          ProfilerFiller profiler = Profiler.get();
          regionizedWorldData.setHandlingTick(true); // Folia - regionised ticking
-@@ -965,6 +966,7 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
- 
+@@ -972,6 +973,7 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
          this.debugSynchronizers.tick(this.server.debugSubscribers());
          profiler.pop();
+         //this.chunkSource.randomState().garbageCollect(); // Folia - region threading - moved to global tick
 +        dev.storia.tickguard.TickGuard.endTick(this, regionizedWorldData); // Storia - tick guard
      }
  
      // Folia start - region threading
 diff --git a/net/minecraft/world/entity/Mob.java b/net/minecraft/world/entity/Mob.java
-index 3b1c3e84ab24b6e3a0e4d129b3617b393b6d6651..5745e071debe825bb8a657cf1c13843ceb525b2b 100644
+index dd5078c5d11e602588606eb3715e3a7d6a4f5487..973935dfed4d75d2edee03d9925af399fc5f047a 100644
 --- a/net/minecraft/world/entity/Mob.java
 +++ b/net/minecraft/world/entity/Mob.java
-@@ -836,11 +836,17 @@ public abstract class Mob extends LivingEntity implements Targeting, EquipmentUs
+@@ -844,11 +844,17 @@ public abstract class Mob extends LivingEntity implements Targeting, EquipmentUs
          }
          // Paper end - Allow nerfed mobs to jump and float
          ProfilerFiller profiler = Profiler.get();
@@ -59,7 +59,7 @@ index 3b1c3e84ab24b6e3a0e4d129b3617b393b6d6651..5745e071debe825bb8a657cf1c13843c
              profiler.push("targetSelector");
              this.targetSelector.tickRunningGoals(false);
              profiler.pop();
-@@ -860,6 +866,7 @@ public abstract class Mob extends LivingEntity implements Targeting, EquipmentUs
+@@ -868,6 +874,7 @@ public abstract class Mob extends LivingEntity implements Targeting, EquipmentUs
          this.navigation.tick();
          profiler.pop();
          profiler.push("mob tick");

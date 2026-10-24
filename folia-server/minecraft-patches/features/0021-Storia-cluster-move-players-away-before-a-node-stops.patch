@@ -5,7 +5,7 @@ Subject: [PATCH] Storia cluster: move players away before a node stops
 
 
 diff --git a/io/papermc/paper/threadedregions/RegionShutdownThread.java b/io/papermc/paper/threadedregions/RegionShutdownThread.java
-index f2208bcd5ccf3bd5a428e8ea3bf3ff26b3c9483b..a8682c013febaeedc5aa2645488d78a666e9436c 100644
+index 68751f44518a9451e1bf87a441926ce61d8c04dd..07d5fe5894f62f694b39a2c815d27a609360f170 100644
 --- a/io/papermc/paper/threadedregions/RegionShutdownThread.java
 +++ b/io/papermc/paper/threadedregions/RegionShutdownThread.java
 @@ -151,6 +151,7 @@ public final class RegionShutdownThread extends ca.spottedleaf.moonrise.common.u

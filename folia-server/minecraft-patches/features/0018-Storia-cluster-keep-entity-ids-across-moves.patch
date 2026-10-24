@@ -17,10 +17,10 @@ index 9fad06eda81b4c2c1889a9cfa7a6948e7ee01862..feb84dde4201fc1037ce13f4daa31ac8
              return player;
          }
 diff --git a/net/minecraft/server/players/PlayerList.java b/net/minecraft/server/players/PlayerList.java
-index 259eb7574841b1b885093b534440f8a40db4e8e2..e9e9bda91db5c91c28cf2f09c9ad838fcc822b6a 100644
+index 82fb4aecffaf4ae97a9c2ab60eca2d67107de0a8..439c81eb005368eb1b8ba3eb4090069458852470 100644
 --- a/net/minecraft/server/players/PlayerList.java
 +++ b/net/minecraft/server/players/PlayerList.java
-@@ -309,6 +309,7 @@ public abstract class PlayerList {
+@@ -311,6 +311,7 @@ public abstract class PlayerList {
          player.containerMenu.transferTo(player.containerMenu, bukkitPlayer);
  
          org.bukkit.event.player.PlayerJoinEvent playerJoinEvent = new org.bukkit.event.player.PlayerJoinEvent(bukkitPlayer, io.papermc.paper.adventure.PaperAdventure.asAdventure(component)); // Paper - Adventure
@@ -28,7 +28,7 @@ index 259eb7574841b1b885093b534440f8a40db4e8e2..e9e9bda91db5c91c28cf2f09c9ad838f
          this.cserver.getPluginManager().callEvent(playerJoinEvent);
  
          if (!player.connection.isAcceptingMessages()) {
-@@ -510,6 +511,7 @@ public abstract class PlayerList {
+@@ -513,6 +514,7 @@ public abstract class PlayerList {
          }
  
          org.bukkit.event.player.PlayerQuitEvent playerQuitEvent = new org.bukkit.event.player.PlayerQuitEvent(player.getBukkitEntity(), leaveMessage, player.quitReason); // Paper - Adventure & Add API for quit reason

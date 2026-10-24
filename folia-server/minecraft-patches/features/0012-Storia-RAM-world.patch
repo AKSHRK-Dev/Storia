@@ -5,7 +5,7 @@ Subject: [PATCH] Storia RAM world
 
 
 diff --git a/net/minecraft/server/Main.java b/net/minecraft/server/Main.java
-index 693ce1c23c7be6406eda22da57aa4a1b86a08f5f..005a84cba57b2820a3daa6e9eca837e3cc6be787 100644
+index aa7f2ba4d931f98ce15c52dc2b99f07504149582..3b4e45b8624fb30d60f1ad17fc25d68055dd0230 100644
 --- a/net/minecraft/server/Main.java
 +++ b/net/minecraft/server/Main.java
 @@ -194,7 +194,7 @@ public class Main {
@@ -18,10 +18,10 @@ index 693ce1c23c7be6406eda22da57aa4a1b86a08f5f..005a84cba57b2820a3daa6e9eca837e3
              Dynamic<?> levelDataTag;
              if (access.hasWorldData()) {
 diff --git a/net/minecraft/server/MinecraftServer.java b/net/minecraft/server/MinecraftServer.java
-index be15a671e0b39b455cd5983f4b90f8f3022a2ebc..94770de517f5768f960623db82402dd23f6af216 100644
+index 7336ed6fce34e0aae96893b18cd142d448e2fcfa..300178e572ccfa8fd3a62900f27ef82db6c388e0 100644
 --- a/net/minecraft/server/MinecraftServer.java
 +++ b/net/minecraft/server/MinecraftServer.java
-@@ -1150,6 +1150,11 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+@@ -1133,6 +1133,11 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
          } catch (IOException e) {
              LOGGER.error("Failed to unlock level {}", this.storageSource.getLevelId(), e);
          }

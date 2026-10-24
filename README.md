@@ -44,16 +44,13 @@
   Entity pushing (the cost of mobs crammed together) is about 3x faster with identical results:
   the same entities are pushed in the same order, and cramming damage and its random roll are unchanged.
   Redstone is not modified.
-- **Faster world generation (Storia)**
-  Noise sampling and block counting are optimized. Terrain is **identical to vanilla** for the same seed
-  (the noise changes are verified bit-for-bit against the original code).
 
 ## Usage
 
 Requires Java 25 or newer.
 
 ```sh
-java -Xmx8G -jar storia-26.2.jar nogui
+java -Xmx8G -jar storia-26.3.jar nogui
 ```
 
 On Pterodactyl or Pelican, import the eggs in [`pterodactyl/`](pterodactyl/).
@@ -67,8 +64,8 @@ Download from [Releases](../../releases/latest):
 | `storia-relay-<version>.zip` | [Storia Relay](packaging/relay/README.md): the cluster's coordinator (stores the world, decides who runs what) |
 | `storia-proxy-<version>.jar` | [Storia Proxy](https://github.com/AKSHRK-Dev/StoriaProxy): Velocity fork with 50 built-in placeholders |
 
-Versions follow Minecraft: `26.2` is the first Storia release for Minecraft 26.2, and later builds for the same
-Minecraft version are `26.2-2`, `26.2-3`, and so on. Use the same version on the server, workers and relay.
+Versions follow Minecraft: `26.3` is the first Storia release for Minecraft 26.3, and later builds for the same
+Minecraft version are `26.3-2`, `26.3-3`, and so on. Use the same version on the server, workers and relay.
 
 Development builds are also available as the `storia-jar` artifact in [Actions](../../actions).
 
@@ -173,7 +170,7 @@ players --> Storia Proxy --> Storia Worker A --\
 
 `/storia cluster` on a worker and `status` in the relay console show who runs what. Time, weather, game rules,
 the scoreboard, maps, advancements and statistics are shared; `/stop` on a worker moves its players to the others
-first. Seamless moves need Minecraft 26.1/26.2 clients. Full guide: https://storiamc.com/en-us/docs/cluster/ and
+first. Seamless moves need Minecraft 26.1 to 26.3 clients. Full guide: https://storiamc.com/en-us/docs/cluster/ and
 the design in [CLUSTER.md](CLUSTER.md).
 
 **Plugins**: each worker runs its own copy of every plugin. Player data is shared by the cluster; for a plugin's

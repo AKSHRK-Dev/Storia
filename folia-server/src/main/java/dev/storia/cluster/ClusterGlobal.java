@@ -99,7 +99,7 @@ public final class ClusterGlobal {
             final ServerClockManager clocks = level.clockManager();
             server.registryAccess().lookupOrThrow(Registries.WORLD_CLOCK).listElements().forEach(clock -> {
                 try {
-                    state.put("clock " + dimension + " " + clock.key().identifier(), Long.toString(clocks.getTotalTicks(clock)));
+                    state.put("clock " + dimension + " " + clock.key().identifier(), Long.toString(clocks.getInstance(clock).totalTicks()));
                 } catch (final IllegalStateException ignored) {
                     // this level does not run that clock
                 }
@@ -229,15 +229,15 @@ public final class ClusterGlobal {
                         if (clock != null) {
                             final ServerClockManager clocks = level.clockManager();
                             final long[] applied = appliedClock.get(key);
-                            if (Math.abs(clocks.getTotalTicks(clock) - ticks) <= CLOCK_TOLERANCE_TICKS) {
+                            if (Math.abs(clocks.getInstance(clock).totalTicks() - ticks) <= CLOCK_TOLERANCE_TICKS) {
                                 appliedClock.put(key, new long[] {ticks, now}); // in agreement
                                 continue;
                             }
                             if (fromPrimary && applied != null
-                                && Math.abs(clocks.getTotalTicks(clock) - (applied[0] + (now - applied[1]) / 50L)) > CHANGE_THRESHOLD_TICKS) {
+                                && Math.abs(clocks.getInstance(clock).totalTicks() - (applied[0] + (now - applied[1]) / 50L)) > CHANGE_THRESHOLD_TICKS) {
                                 continue; // set locally (/time), not reported yet
                             }
-                            if (Math.abs(clocks.getTotalTicks(clock) - ticks) > CLOCK_TOLERANCE_TICKS || !fromPrimary) {
+                            if (Math.abs(clocks.getInstance(clock).totalTicks() - ticks) > CLOCK_TOLERANCE_TICKS || !fromPrimary) {
                                 clocks.setTotalTicks(clock, ticks);
                             }
                             appliedClock.put(key, new long[] {ticks, now});
@@ -275,7 +275,7 @@ public final class ClusterGlobal {
         final StringBuilder out = new StringBuilder(weather.isThundering() ? "thunder" : weather.isRaining() ? "rain" : "clear");
         server.registryAccess().lookupOrThrow(Registries.WORLD_CLOCK).listElements().forEach(clock -> {
             try {
-                out.append(", ").append(clock.key().identifier().getPath()).append(" clock ").append(level.clockManager().getTotalTicks(clock) % 24000L);
+                out.append(", ").append(clock.key().identifier().getPath()).append(" clock ").append(level.clockManager().getInstance(clock).totalTicks() % 24000L);
             } catch (final IllegalStateException ignored) {
                 // not run by this level
             }

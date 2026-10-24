@@ -5,10 +5,10 @@ Subject: [PATCH] Storia linear region format
 
 
 diff --git a/net/minecraft/world/level/chunk/storage/RegionFileStorage.java b/net/minecraft/world/level/chunk/storage/RegionFileStorage.java
-index 06787c98d2d54ee9d8aa351e74a1de926bbd3cff..c23b36899b20d033f8b11817b18758c1e31f3cc7 100644
+index 68cd7b2709545b4b247e18ae8632ec8e031f8007..361fb6622dad1f6890eeafc90ef15d0153fcc825 100644
 --- a/net/minecraft/world/level/chunk/storage/RegionFileStorage.java
 +++ b/net/minecraft/world/level/chunk/storage/RegionFileStorage.java
-@@ -136,6 +136,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+@@ -82,6 +82,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
          final int chunkX, final int chunkZ, final CompoundTag compound
      ) throws IOException {
          if (dev.storia.cluster.Cluster.handles(this.info)) return dev.storia.cluster.Cluster.startWrite(this.info, chunkX, chunkZ, compound); // Storia - cluster
@@ -16,7 +16,7 @@ index 06787c98d2d54ee9d8aa351e74a1de926bbd3cff..c23b36899b20d033f8b11817b18758c1
          if (compound == null) {
              return new ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.WriteData(
                  compound, ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.WriteData.WriteResult.DELETE,
-@@ -177,6 +178,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+@@ -123,6 +124,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
          final int chunkX, final int chunkZ, final ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.WriteData writeData
      ) throws IOException {
          if (dev.storia.cluster.Cluster.handles(this.info)) { dev.storia.cluster.Cluster.finishWrite(this.info, chunkX, chunkZ, writeData); return; } // Storia - cluster
@@ -24,31 +24,31 @@ index 06787c98d2d54ee9d8aa351e74a1de926bbd3cff..c23b36899b20d033f8b11817b18758c1
          final ChunkPos pos = new ChunkPos(chunkX, chunkZ);
          if (writeData.result() == ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.WriteData.WriteResult.DELETE) {
              final RegionFile regionFile = this.moonrise$getRegionFileIfExists(chunkX, chunkZ);
-@@ -195,6 +197,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+@@ -141,6 +143,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
          final int chunkX, final int chunkZ
      ) throws IOException {
          if (dev.storia.cluster.Cluster.handles(this.info)) return dev.storia.cluster.Cluster.readData(this.info, chunkX, chunkZ); // Storia - cluster
 +        if (dev.storia.storage.LinearStorage.handles(this.info)) return dev.storia.storage.LinearStorage.of(this.folder).readData(chunkX, chunkZ); // Storia - linear region format
          final RegionFile regionFile = this.moonrise$getRegionFileIfExists(chunkX, chunkZ);
  
-         final DataInputStream input = regionFile == null ? null : regionFile.getChunkDataInputStream(new ChunkPos(chunkX, chunkZ));
-@@ -232,6 +235,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+         // retrieve the count after reading under the regionfile lock, so that it matches the header the data was read with
+@@ -189,6 +192,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
          final int chunkX, final int chunkZ, final ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.ReadData readData
      ) throws IOException {
          if (dev.storia.cluster.Cluster.handles(this.info)) return readData.syncRead(); // Storia - cluster
 +        if (dev.storia.storage.LinearStorage.handles(this.info)) return readData.syncRead(); // Storia - linear region format
+         final CompoundTag ret;
          try {
-             // Paper start - Attempt to recalculate regionfile header if it is corrupt
-             final CompoundTag ret = NbtIo.read(readData.input());
-@@ -350,6 +354,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+             ret = ca.spottedleaf.moonrise.patches.nbt_rw.FastNBTParser.nbtIoRead(readData.input()); // Paper - Optimize NBT reading/writing
+@@ -287,6 +291,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
  
      public @Nullable CompoundTag read(final ChunkPos pos) throws IOException {
          if (dev.storia.cluster.Cluster.handles(this.info)) return dev.storia.cluster.Cluster.read(this.info, pos.x(), pos.z()); // Storia - cluster
 +        if (dev.storia.storage.LinearStorage.handles(this.info)) return dev.storia.storage.LinearStorage.of(this.folder).read(pos.x(), pos.z()); // Storia - linear region format
-         // CraftBukkit start - SPIGOT-5680: There's no good reason to preemptively create files on read, save that for writing
-         RegionFile region = this.getRegionFile(pos, true);
+         RegionFile region = this.getRegionFile(pos, false);
          if (region == null) {
-@@ -394,6 +399,13 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+             return null;
+@@ -333,6 +338,13 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
              return;
          }
          // Storia end - cluster
@@ -59,18 +59,18 @@ index 06787c98d2d54ee9d8aa351e74a1de926bbd3cff..c23b36899b20d033f8b11817b18758c1
 +            return;
 +        }
 +        // Storia end - linear region format
-         // CraftBukkit start - SPIGOT-5680: There's no good reason to preemptively create files on read, save that for writing
-         RegionFile region = this.getRegionFile(pos, true);
-         if (region == null) {
-@@ -410,6 +422,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+         RegionFile region = this.getRegionFile(pos, false);
+         if (region != null) {
+             try (DataInputStream regionChunkInputStream = region.getChunkDataInputStream(pos)) {
+@@ -345,6 +357,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
  
      public void write(final ChunkPos pos, final @Nullable CompoundTag value) throws IOException {
          if (dev.storia.cluster.Cluster.handles(this.info)) { dev.storia.cluster.Cluster.write(this.info, pos.x(), pos.z(), value); return; } // Storia - cluster
 +        if (dev.storia.storage.LinearStorage.handles(this.info)) { dev.storia.storage.LinearStorage.of(this.folder).write(pos.x(), pos.z(), value); return; } // Storia - linear region format
-         if (!SharedConstants.DEBUG_DONT_SAVE_WORLD) {
-             RegionFile region = this.getRegionFile(pos, value == null); // CraftBukkit // Paper - rewrite chunk system
-             // Paper start - rewrite chunk system
-@@ -440,6 +453,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+         // Paper start - rewrite chunk system
+         // if the RegionFile doesn't exist, no point in deleting from it
+         if (value == null && this.moonrise$getRegionFileIfExists(pos.x(), pos.z()) == null) {
+@@ -374,6 +387,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
  
      @Override
      public void close() throws IOException {
@@ -78,7 +78,7 @@ index 06787c98d2d54ee9d8aa351e74a1de926bbd3cff..c23b36899b20d033f8b11817b18758c1
          // Paper start - rewrite chunk system
          synchronized (this) {
              final ExceptionCollector<IOException> exceptionCollector = new ExceptionCollector<>();
-@@ -456,6 +470,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+@@ -393,6 +407,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
      }
  
      public void flush() throws IOException {

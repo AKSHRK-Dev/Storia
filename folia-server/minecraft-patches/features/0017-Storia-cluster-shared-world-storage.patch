@@ -5,7 +5,7 @@ Subject: [PATCH] Storia cluster: shared world storage
 
 
 diff --git a/net/minecraft/server/Main.java b/net/minecraft/server/Main.java
-index 005a84cba57b2820a3daa6e9eca837e3cc6be787..b83890b389a7383d2e9ebfdd49bbdb1d157ce9f1 100644
+index 3b4e45b8624fb30d60f1ad17fc25d68055dd0230..cac615161c9966bb2fa5d9bfad3ce9c917cb42d6 100644
 --- a/net/minecraft/server/Main.java
 +++ b/net/minecraft/server/Main.java
 @@ -194,7 +194,8 @@ public class Main {
@@ -19,10 +19,10 @@ index 005a84cba57b2820a3daa6e9eca837e3cc6be787..b83890b389a7383d2e9ebfdd49bbdb1d
              Dynamic<?> levelDataTag;
              if (access.hasWorldData()) {
 diff --git a/net/minecraft/server/level/ServerLevel.java b/net/minecraft/server/level/ServerLevel.java
-index 3f35a0b62e74580495dbb56d2a82139c197ddcb7..495816af4b9883930cc02cf5a041656c4eb085e9 100644
+index 99b8db0ad2599f26e604e1661e85ef63edcdf546..386e5dd44cf476bf00930dfd24025ca9c5220a2b 100644
 --- a/net/minecraft/server/level/ServerLevel.java
 +++ b/net/minecraft/server/level/ServerLevel.java
-@@ -191,7 +191,7 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+@@ -192,7 +192,7 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
      private static final Logger LOGGER = LogUtils.getLogger();
      private static final int EMPTY_TIME_NO_TICK = 300;
      private static final int MAX_SCHEDULED_TICKS_PER_TICK = 65536;
@@ -32,10 +32,10 @@ index 3f35a0b62e74580495dbb56d2a82139c197ddcb7..495816af4b9883930cc02cf5a041656c
      private final ServerChunkCache chunkSource;
      private final MinecraftServer server;
 diff --git a/net/minecraft/world/level/chunk/storage/RegionFileStorage.java b/net/minecraft/world/level/chunk/storage/RegionFileStorage.java
-index 63b40c420030d935bb81a219fb33defe0946e21f..06787c98d2d54ee9d8aa351e74a1de926bbd3cff 100644
+index 7e815fee19ab2c283bf1fdc3d6a530d4101de3de..68cd7b2709545b4b247e18ae8632ec8e031f8007 100644
 --- a/net/minecraft/world/level/chunk/storage/RegionFileStorage.java
 +++ b/net/minecraft/world/level/chunk/storage/RegionFileStorage.java
-@@ -135,6 +135,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+@@ -81,6 +81,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
      public final ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.WriteData moonrise$startWrite(
          final int chunkX, final int chunkZ, final CompoundTag compound
      ) throws IOException {
@@ -43,7 +43,7 @@ index 63b40c420030d935bb81a219fb33defe0946e21f..06787c98d2d54ee9d8aa351e74a1de92
          if (compound == null) {
              return new ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.WriteData(
                  compound, ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.WriteData.WriteResult.DELETE,
-@@ -175,6 +176,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+@@ -121,6 +122,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
      public final void moonrise$finishWrite(
          final int chunkX, final int chunkZ, final ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.WriteData writeData
      ) throws IOException {
@@ -51,31 +51,31 @@ index 63b40c420030d935bb81a219fb33defe0946e21f..06787c98d2d54ee9d8aa351e74a1de92
          final ChunkPos pos = new ChunkPos(chunkX, chunkZ);
          if (writeData.result() == ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.WriteData.WriteResult.DELETE) {
              final RegionFile regionFile = this.moonrise$getRegionFileIfExists(chunkX, chunkZ);
-@@ -192,6 +194,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+@@ -138,6 +140,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
      public final ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.ReadData moonrise$readData(
          final int chunkX, final int chunkZ
      ) throws IOException {
 +        if (dev.storia.cluster.Cluster.handles(this.info)) return dev.storia.cluster.Cluster.readData(this.info, chunkX, chunkZ); // Storia - cluster
          final RegionFile regionFile = this.moonrise$getRegionFileIfExists(chunkX, chunkZ);
  
-         final DataInputStream input = regionFile == null ? null : regionFile.getChunkDataInputStream(new ChunkPos(chunkX, chunkZ));
-@@ -228,6 +231,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+         // retrieve the count after reading under the regionfile lock, so that it matches the header the data was read with
+@@ -185,6 +188,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
      public final CompoundTag moonrise$finishRead(
          final int chunkX, final int chunkZ, final ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.RegionDataController.ReadData readData
      ) throws IOException {
 +        if (dev.storia.cluster.Cluster.handles(this.info)) return readData.syncRead(); // Storia - cluster
+         final CompoundTag ret;
          try {
-             // Paper start - Attempt to recalculate regionfile header if it is corrupt
-             final CompoundTag ret = NbtIo.read(readData.input());
-@@ -345,6 +349,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
-     // Paper end
+             ret = ca.spottedleaf.moonrise.patches.nbt_rw.FastNBTParser.nbtIoRead(readData.input()); // Paper - Optimize NBT reading/writing
+@@ -282,6 +286,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+     }
  
      public @Nullable CompoundTag read(final ChunkPos pos) throws IOException {
 +        if (dev.storia.cluster.Cluster.handles(this.info)) return dev.storia.cluster.Cluster.read(this.info, pos.x(), pos.z()); // Storia - cluster
-         // CraftBukkit start - SPIGOT-5680: There's no good reason to preemptively create files on read, save that for writing
-         RegionFile region = this.getRegionFile(pos, true);
+         RegionFile region = this.getRegionFile(pos, false);
          if (region == null) {
-@@ -382,6 +387,13 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+             return null;
+@@ -321,6 +326,13 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
      }
  
      public void scanChunk(final ChunkPos pos, final StreamTagVisitor scanner) throws IOException {
@@ -86,19 +86,19 @@ index 63b40c420030d935bb81a219fb33defe0946e21f..06787c98d2d54ee9d8aa351e74a1de92
 +            return;
 +        }
 +        // Storia end - cluster
-         // CraftBukkit start - SPIGOT-5680: There's no good reason to preemptively create files on read, save that for writing
-         RegionFile region = this.getRegionFile(pos, true);
-         if (region == null) {
-@@ -397,6 +409,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
+         RegionFile region = this.getRegionFile(pos, false);
+         if (region != null) {
+             try (DataInputStream regionChunkInputStream = region.getChunkDataInputStream(pos)) {
+@@ -332,6 +344,7 @@ public class RegionFileStorage implements AutoCloseable, ca.spottedleaf.moonrise
      }
  
      public void write(final ChunkPos pos, final @Nullable CompoundTag value) throws IOException {
 +        if (dev.storia.cluster.Cluster.handles(this.info)) { dev.storia.cluster.Cluster.write(this.info, pos.x(), pos.z(), value); return; } // Storia - cluster
-         if (!SharedConstants.DEBUG_DONT_SAVE_WORLD) {
-             RegionFile region = this.getRegionFile(pos, value == null); // CraftBukkit // Paper - rewrite chunk system
-             // Paper start - rewrite chunk system
+         // Paper start - rewrite chunk system
+         // if the RegionFile doesn't exist, no point in deleting from it
+         if (value == null && this.moonrise$getRegionFileIfExists(pos.x(), pos.z()) == null) {
 diff --git a/net/minecraft/world/level/storage/PlayerDataStorage.java b/net/minecraft/world/level/storage/PlayerDataStorage.java
-index eddb6ebe3fa50a818e54079b73ba117be0abd195..5ed67b1fff8f4af02099defd23b0bf07c518ad61 100644
+index 142a34eb046c87f16b73023c83218d8752922fbe..3b8d26df0499e93ed4f09f96ac76ca59442f64f4 100644
 --- a/net/minecraft/world/level/storage/PlayerDataStorage.java
 +++ b/net/minecraft/world/level/storage/PlayerDataStorage.java
 @@ -38,6 +38,7 @@ public class PlayerDataStorage {

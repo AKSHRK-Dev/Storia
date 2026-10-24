@@ -58,7 +58,7 @@
      implementation("org.jline:jline-terminal-ffm:4.4.6")
      implementation("net.minecrell:terminalconsoleappender:1.3.0")
      implementation("net.kyori:adventure-text-serializer-ansi")
-+    compileOnly("com.github.luben:zstd-jni:1.5.7-15") // Storia - linear region format; Minecraft ships it at runtime
++    implementation("com.github.luben:zstd-jni:1.5.7-15") // Storia - linear region format; Minecraft 26.3 no longer ships it
 @@ -174,14 +_,14 @@
          val gitBranch = git.exec(providers, "rev-parse", "--abbrev-ref", "HEAD").get().trim()
          attributes(

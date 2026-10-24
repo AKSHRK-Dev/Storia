@@ -5,10 +5,10 @@ Subject: [PATCH] Storia server started flag
 
 
 diff --git a/net/minecraft/server/MinecraftServer.java b/net/minecraft/server/MinecraftServer.java
-index 94770de517f5768f960623db82402dd23f6af216..eb8ab385c220526bae54663089229e5b2a234984 100644
+index 300178e572ccfa8fd3a62900f27ef82db6c388e0..c5201e3a43ad299de24f5ac3ba2fde86f69df776 100644
 --- a/net/minecraft/server/MinecraftServer.java
 +++ b/net/minecraft/server/MinecraftServer.java
-@@ -1359,6 +1359,7 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+@@ -1342,6 +1342,7 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
                  io.papermc.paper.threadedregions.RegionizedServer.getInstance().init(); // Folia - region threading - only after loading worlds
                  final long actualDoneTimeMs = System.currentTimeMillis() - org.bukkit.craftbukkit.Main.BOOT_TIME.toEpochMilli(); // Paper - Improve startup message
                  LOGGER.info("Done ({})! For help, type \"help\"", String.format(java.util.Locale.ROOT, "%.3fs", actualDoneTimeMs / 1000.00D)); // Paper - Improve startup message

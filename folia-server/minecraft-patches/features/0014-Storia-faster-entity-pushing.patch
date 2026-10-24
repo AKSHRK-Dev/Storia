@@ -5,10 +5,10 @@ Subject: [PATCH] Storia faster entity pushing
 
 
 diff --git a/net/minecraft/world/entity/LivingEntity.java b/net/minecraft/world/entity/LivingEntity.java
-index 1cb8265c1313ad4893d45c344b03007fc4e2de4b..b694b063719ebadc81592295f0d14ede1cd76f9a 100644
+index a66f01754046bd9e3946552cac794b2f624214f9..c807f3845810e827671bd34489d074b111c763f3 100644
 --- a/net/minecraft/world/entity/LivingEntity.java
 +++ b/net/minecraft/world/entity/LivingEntity.java
-@@ -3923,7 +3923,14 @@ public abstract class LivingEntity extends Entity implements Attackable, Waypoin
+@@ -3920,7 +3920,14 @@ public abstract class LivingEntity extends Entity implements Attackable, Waypoin
              return;
          }
          // Paper end - don't run getEntities if we're not going to use its result
@@ -24,7 +24,7 @@ index 1cb8265c1313ad4893d45c344b03007fc4e2de4b..b694b063719ebadc81592295f0d14ede
          if (!pushableEntities.isEmpty()) {
              if (this.level() instanceof ServerLevel serverLevel) {
                  // Paper - don't run getEntities if we're not going to use its result; moved up
-@@ -3957,6 +3964,98 @@ public abstract class LivingEntity extends Entity implements Attackable, Waypoin
+@@ -3954,6 +3961,98 @@ public abstract class LivingEntity extends Entity implements Attackable, Waypoin
          }
      }
  

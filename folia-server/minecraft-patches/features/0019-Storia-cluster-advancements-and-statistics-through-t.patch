@@ -6,10 +6,10 @@ Subject: [PATCH] Storia cluster: advancements and statistics through the
 
 
 diff --git a/net/minecraft/server/PlayerAdvancements.java b/net/minecraft/server/PlayerAdvancements.java
-index d447b444abd9b62ab241419301a96d19ae77a7eb..0ba5814af897b075f12f08eba69d1120afca2093 100644
+index e70701663abd6f19a506690167d80f0dceab8000..dcaf1d855b93a8ad478bdd3f800cdb1c8ed52f39 100644
 --- a/net/minecraft/server/PlayerAdvancements.java
 +++ b/net/minecraft/server/PlayerAdvancements.java
-@@ -110,6 +110,23 @@ public class PlayerAdvancements {
+@@ -111,6 +111,23 @@ public class PlayerAdvancements {
      }
  
      private void load(final ServerAdvancementManager manager) {
@@ -33,7 +33,7 @@ index d447b444abd9b62ab241419301a96d19ae77a7eb..0ba5814af897b075f12f08eba69d1120
          if (Files.isRegularFile(this.playerSavePath)) {
              try (Reader reader = Files.newBufferedReader(this.playerSavePath, StandardCharsets.UTF_8)) {
                  JsonElement json = StrictJsonParser.parse(reader);
-@@ -129,6 +146,18 @@ public class PlayerAdvancements {
+@@ -130,6 +147,18 @@ public class PlayerAdvancements {
      public void save() {
          if (org.spigotmc.SpigotConfig.disableAdvancementSaving) return; // Spigot
          JsonElement json = this.codec.encodeStart(JsonOps.INSTANCE, this.asData()).getOrThrow();

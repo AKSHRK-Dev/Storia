@@ -6,7 +6,7 @@ Subject: [PATCH] Storia cluster: shared map ids and map data, drain on /stop,
 
 
 diff --git a/io/papermc/paper/threadedregions/RegionShutdownThread.java b/io/papermc/paper/threadedregions/RegionShutdownThread.java
-index a8682c013febaeedc5aa2645488d78a666e9436c..f2208bcd5ccf3bd5a428e8ea3bf3ff26b3c9483b 100644
+index 07d5fe5894f62f694b39a2c815d27a609360f170..68751f44518a9451e1bf87a441926ce61d8c04dd 100644
 --- a/io/papermc/paper/threadedregions/RegionShutdownThread.java
 +++ b/io/papermc/paper/threadedregions/RegionShutdownThread.java
 @@ -151,7 +151,6 @@ public final class RegionShutdownThread extends ca.spottedleaf.moonrise.common.u
@@ -18,10 +18,10 @@ index a8682c013febaeedc5aa2645488d78a666e9436c..f2208bcd5ccf3bd5a428e8ea3bf3ff26
          LOGGER.info("Awaiting scheduler termination for 60s...");
          if (TickRegions.getScheduler().halt(true, TimeUnit.SECONDS.toNanos(60L))) {
 diff --git a/net/minecraft/server/MinecraftServer.java b/net/minecraft/server/MinecraftServer.java
-index eb8ab385c220526bae54663089229e5b2a234984..865c62a7cae2d1ff05fb616773263e7870f3ee66 100644
+index c5201e3a43ad299de24f5ac3ba2fde86f69df776..798d04727c1596a87adf8118da2d676c8ee7d70e 100644
 --- a/net/minecraft/server/MinecraftServer.java
 +++ b/net/minecraft/server/MinecraftServer.java
-@@ -1196,6 +1196,7 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
+@@ -1179,6 +1179,7 @@ public abstract class MinecraftServer extends ReentrantBlockableEventLoop<TickTa
          this.halt(wait, false);
      }
      public void halt(final boolean wait, final boolean isRestarting) {
@@ -30,10 +30,10 @@ index eb8ab385c220526bae54663089229e5b2a234984..865c62a7cae2d1ff05fb616773263e78
          this.hasLoggedStop = true; // Paper - Debugging
          if (this.isDebugging()) io.papermc.paper.util.TraceUtil.dumpTraceForThread("Server stopped"); // Paper - Debugging
 diff --git a/net/minecraft/server/level/ServerLevel.java b/net/minecraft/server/level/ServerLevel.java
-index 27af2db32ac2e01346beb9a722760f5da3aa4e13..218e1bcd3907879a99597ed796a1ca532daca89e 100644
+index d190d86b6a7f01570bc9c02b4087208551982fb3..e7b57fd857ddfa3a9a489cb7d4cda37072d55283 100644
 --- a/net/minecraft/server/level/ServerLevel.java
 +++ b/net/minecraft/server/level/ServerLevel.java
-@@ -2493,6 +2493,15 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+@@ -2759,6 +2759,15 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
      }
  
      public MapId getFreeMapId() {
@@ -50,10 +50,10 @@ index 27af2db32ac2e01346beb9a722760f5da3aa4e13..218e1bcd3907879a99597ed796a1ca53
      }
  
 diff --git a/net/minecraft/server/players/PlayerList.java b/net/minecraft/server/players/PlayerList.java
-index e9e9bda91db5c91c28cf2f09c9ad838fcc822b6a..1e7e88902a1cef69595ef9d5197d9acf142cd9ea 100644
+index 439c81eb005368eb1b8ba3eb4090069458852470..d8976d9d636bb68e3b506799afd071dd34cfd496 100644
 --- a/net/minecraft/server/players/PlayerList.java
 +++ b/net/minecraft/server/players/PlayerList.java
-@@ -535,6 +535,7 @@ public abstract class PlayerList {
+@@ -538,6 +538,7 @@ public abstract class PlayerList {
          }
          // Paper end - Drop carried item when player has disconnected
          this.save(player);
@@ -62,7 +62,7 @@ index e9e9bda91db5c91c28cf2f09c9ad838fcc822b6a..1e7e88902a1cef69595ef9d5197d9acf
              Entity vehicle = player.getRootVehicle();
              if (vehicle.hasExactlyOnePlayerPassenger()) {
 diff --git a/net/minecraft/world/level/storage/SavedDataStorage.java b/net/minecraft/world/level/storage/SavedDataStorage.java
-index 81c1541d8fa272e84316e87c3418ee727111a65c..93d74fa68b9dcf2cdbda0ec887ce73edfe3ca3df 100644
+index 74b055c34aba4d52b1d55965015ba2eface0dc4a..e0976b6d005815019020bc8ad3fd15373112229d 100644
 --- a/net/minecraft/world/level/storage/SavedDataStorage.java
 +++ b/net/minecraft/world/level/storage/SavedDataStorage.java
 @@ -121,9 +121,29 @@ public class SavedDataStorage implements AutoCloseable {

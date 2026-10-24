@@ -5,10 +5,10 @@ Subject: [PATCH] Storia cluster: only the primary node runs the weather cycle
 
 
 diff --git a/net/minecraft/server/level/ServerLevel.java b/net/minecraft/server/level/ServerLevel.java
-index 495816af4b9883930cc02cf5a041656c4eb085e9..27af2db32ac2e01346beb9a722760f5da3aa4e13 100644
+index 386e5dd44cf476bf00930dfd24025ca9c5220a2b..d190d86b6a7f01570bc9c02b4087208551982fb3 100644
 --- a/net/minecraft/server/level/ServerLevel.java
 +++ b/net/minecraft/server/level/ServerLevel.java
-@@ -1308,7 +1308,7 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+@@ -1316,7 +1316,7 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
          boolean wasRaining = this.isRaining();
          if (this.canHaveWeather()) {
              WeatherData weatherData = this.getWeatherData();

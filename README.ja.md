@@ -42,16 +42,13 @@
 - **エンティティの物理演算の高速化（Storia 独自）**
   モブが密集したときの押し合い判定が約3倍速くなります。押す相手・順番・窒息ダメージ（乱数を含む）は
   バニラと完全に同じです。レッドストーンには手を加えていません。
-- **ワールド生成の高速化（Storia 独自）**
-  ノイズ計算とブロック数の数え方を最適化しています。同じシードなら**地形はバニラと完全に同じ**です
-  （ノイズの変更は、元のコードと出力がビット単位で一致することを確認済み）。
 
 ## 使い方
 
 Java 25 以上が必要です。
 
 ```sh
-java -Xmx8G -jar storia-26.2.jar nogui
+java -Xmx8G -jar storia-26.3.jar nogui
 ```
 
 Pterodactyl や Pelican では、[`pterodactyl/`](pterodactyl/) の egg を取り込めば使えます。
@@ -65,8 +62,8 @@ Pterodactyl や Pelican では、[`pterodactyl/`](pterodactyl/) の egg を取�
 | `storia-relay-<version>.zip` | [Storia Relay](packaging/relay/README.md)：Cluster のまとめ役（ワールドを保管し、どこを誰が動かすかを決める） |
 | `storia-proxy-<version>.jar` | [Storia Proxy](https://github.com/AKSHRK-Dev/StoriaProxy)：プレースホルダー 50 個入りの Velocity フォーク |
 
-バージョンは Minecraft に合わせています。`26.2` は Minecraft 26.2 向けの最初のリリースで、同じ Minecraft バージョンの
-2 回目以降は `26.2-2`、`26.2-3` … となります。サーバー・ワーカー・リレーは同じバージョンにそろえてください。
+バージョンは Minecraft に合わせています。`26.3` は Minecraft 26.3 向けの最初のリリースで、同じ Minecraft バージョンの
+2 回目以降は `26.3-2`、`26.3-3` … となります。サーバー・ワーカー・リレーは同じバージョンにそろえてください。
 
 開発版は [Actions](../../actions) の成果物（`storia-jar`）からもダウンロードできます。
 
@@ -171,7 +168,7 @@ player-budget:
 
 ワーカーの `/storia cluster` と Relay のコンソールの `status` で、どこを誰が動かしているかを確認できます。時刻・天気・
 ゲームルール・スコアボード・地図・進捗・統計は共有され、ワーカーで `/stop` すると先にプレイヤーをほかのワーカーへ
-移します。読み込み画面なしの移動は Minecraft 26.1・26.2 のクライアントが対象です。詳しいガイド：
+移します。読み込み画面なしの移動は Minecraft 26.1〜26.3 のクライアントが対象です。詳しいガイド：
 https://storiamc.com/ja-jp/docs/cluster/ 、設計は [CLUSTER.md](CLUSTER.md)。
 
 **プラグイン**：各ワーカーがそれぞれプラグインを動かします。プレイヤーデータは Cluster が共有します。プラグイン自身の
